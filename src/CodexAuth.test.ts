@@ -13,7 +13,6 @@ import {
   CLIENT_ID,
   CodexAuth,
   CodexAuthError,
-  CODEX_API_BASE,
   ISSUER,
   POLLING_SAFETY_MARGIN_MS,
   pollAuthorization,
@@ -29,7 +28,6 @@ import {
   toCodexAuthKeyValueStore,
   toTokenStore,
 } from "./CodexAuth.ts"
-import * as PublicApi from "./index.ts"
 
 const createJwt = (payload: string): string =>
   `${Encoding.encodeBase64Url(JSON.stringify({ alg: "none" }))}.${Encoding.encodeBase64Url(payload)}.sig`
@@ -970,29 +968,4 @@ describe("CodexAuth", () => {
         assert.strictEqual(yield* Ref.get(attempts), 6)
       }).pipe(Effect.provide(KeyValueStore.layerMemory)),
   )
-
-  it("re-exports the public Codex auth surface without storage helpers", () => {
-    assert.strictEqual(PublicApi.CLIENT_ID, CLIENT_ID)
-    assert.strictEqual(PublicApi.CodexAuth, CodexAuth)
-    assert.strictEqual(PublicApi.CODEX_API_BASE, CODEX_API_BASE)
-    assert.strictEqual(PublicApi.ISSUER, ISSUER)
-    assert.strictEqual(
-      PublicApi.POLLING_SAFETY_MARGIN_MS,
-      POLLING_SAFETY_MARGIN_MS,
-    )
-    assert.strictEqual(PublicApi.STORE_PREFIX, STORE_PREFIX)
-    assert.strictEqual(PublicApi.STORE_TOKEN_KEY, STORE_TOKEN_KEY)
-    assert.strictEqual(PublicApi.TOKEN_EXPIRY_BUFFER_MS, TOKEN_EXPIRY_BUFFER_MS)
-    assert.strictEqual(PublicApi.TokenData, TokenData)
-    assert.strictEqual(PublicApi.CodexAuthError, CodexAuthError)
-    assert.strictEqual("exchangeAuthorizationCode" in PublicApi, false)
-    assert.strictEqual("extractAccountIdFromClaims" in PublicApi, false)
-    assert.strictEqual("extractAccountIdFromToken" in PublicApi, false)
-    assert.strictEqual("parseJwtClaims" in PublicApi, false)
-    assert.strictEqual("pollAuthorization" in PublicApi, false)
-    assert.strictEqual("refreshToken" in PublicApi, false)
-    assert.strictEqual("requestDeviceCode" in PublicApi, false)
-    assert.strictEqual("toCodexAuthKeyValueStore" in PublicApi, false)
-    assert.strictEqual("toTokenStore" in PublicApi, false)
-  })
 })

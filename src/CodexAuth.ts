@@ -10,6 +10,7 @@ import {
   ServiceMap,
 } from "effect"
 import {
+  FetchHttpClient,
   HttpClient,
   HttpClientRequest,
   HttpClientResponse,
@@ -207,14 +208,6 @@ const injectAuthHeaders = (
         ),
       ),
     ),
-  )
-
-const makeLayerClient = (
-  httpClient: HttpClient.HttpClient,
-  auth: CodexAuth["Service"],
-): HttpClient.HttpClient =>
-  httpClient.pipe(
-    HttpClient.mapRequestEffect((request) => injectAuthHeaders(request, auth)),
   )
 
 const toTokenDataFromResponse = (token: TokenResponse): TokenData =>
@@ -541,13 +534,22 @@ export class CodexAuth extends ServiceMap.Service<CodexAuth>()(
 ) {
   static readonly layer = Layer.effect(this, this.make)
 
-  static readonly layerClient = Layer.effect(
+  static readonly layerClientNoDeps = Layer.effect(
     HttpClient.HttpClient,
     Effect.gen(function* () {
       const auth = yield* CodexAuth
       const httpClient = yield* HttpClient.HttpClient
 
-      return makeLayerClient(httpClient, auth)
+      return httpClient.pipe(
+        HttpClient.mapRequestEffect((request) =>
+          injectAuthHeaders(request, auth),
+        ),
+      )
     }),
+  )
+
+  static readonly layerClient = this.layerClientNoDeps.pipe(
+    Layer.provide(CodexAuth.layer),
+    Layer.provide(FetchHttpClient.layer),
   )
 }
