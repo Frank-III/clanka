@@ -54,7 +54,6 @@ export class CodexAuthError extends Schema.TaggedErrorClass<CodexAuthError>()(
       "DeviceFlowFailed",
       "TokenExchangeFailed",
       "RefreshFailed",
-      "JwtParseFailed",
     ]),
     message: Schema.String,
     cause: Schema.optional(Schema.Defect),
@@ -92,25 +91,60 @@ export interface AuthorizationCodeData {
   readonly codeVerifier: string
 }
 
-const JwtAccountClaimSchema = Schema.Struct({
-  chatgpt_account_id: Schema.optional(Schema.String),
-})
+export interface JwtClaims {
+  readonly chatgpt_account_id?: string
+  readonly "https://api.openai.com/auth"?: {
+    readonly chatgpt_account_id?: string
+  }
+  readonly organizations?: ReadonlyArray<{
+    readonly id: string
+  }>
+}
 
-const JwtOrganizationSchema = Schema.Struct({
-  id: Schema.String,
-})
-
-const JwtClaimsSchema = Schema.Struct({
-  chatgpt_account_id: Schema.optional(Schema.String),
-  "https://api.openai.com/auth": Schema.optional(JwtAccountClaimSchema),
-  organizations: Schema.optional(Schema.Array(JwtOrganizationSchema)),
-})
-
-export type JwtClaims = typeof JwtClaimsSchema.Type
-
-const decodeJwtClaims = Schema.decodeUnknownOption(
-  Schema.fromJsonString(JwtClaimsSchema),
+const decodeJwtJson = Schema.decodeUnknownOption(
+  Schema.fromJsonString(Schema.Unknown),
 )
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value)
+
+const getString = (value: unknown): string | undefined =>
+  typeof value === "string" ? value : undefined
+
+const toJwtClaims = (value: unknown): Option.Option<JwtClaims> => {
+  if (!isRecord(value)) {
+    return Option.none()
+  }
+
+  const accountId = getString(value["chatgpt_account_id"])
+  const authValue = value["https://api.openai.com/auth"]
+  const nestedAccountId = isRecord(authValue)
+    ? getString(authValue["chatgpt_account_id"])
+    : undefined
+  const organizationsValue = value["organizations"]
+  const organizationId =
+    Array.isArray(organizationsValue) &&
+    organizationsValue[0] !== undefined &&
+    isRecord(organizationsValue[0])
+      ? getString(organizationsValue[0]["id"])
+      : undefined
+
+  return Option.some({
+    ...(accountId === undefined ? {} : { chatgpt_account_id: accountId }),
+    ...(nestedAccountId === undefined
+      ? {}
+      : {
+          "https://api.openai.com/auth": {
+            chatgpt_account_id: nestedAccountId,
+          },
+        }),
+    ...(organizationId === undefined
+      ? {}
+      : {
+          organizations: [{ id: organizationId }],
+        }),
+  })
+}
 
 const decodeJwtPayload = (token: string): Option.Option<string> => {
   const parts = token.split(".")
@@ -129,7 +163,10 @@ const decodeJwtPayload = (token: string): Option.Option<string> => {
 }
 
 export const parseJwtClaims = (token: string): Option.Option<JwtClaims> =>
-  decodeJwtPayload(token).pipe(Option.flatMap(decodeJwtClaims))
+  decodeJwtPayload(token).pipe(
+    Option.flatMap(decodeJwtJson),
+    Option.flatMap(toJwtClaims),
+  )
 
 export const extractAccountIdFromClaims = (
   claims: JwtClaims,
@@ -147,7 +184,12 @@ export const extractAccountIdFromClaims = (
     return Option.some(nestedAccountId)
   }
 
-  return Option.fromNullishOr(claims.organizations?.[0]?.id)
+  const organizationId = claims.organizations?.[0]?.id
+  if (organizationId !== undefined && organizationId !== "") {
+    return Option.some(organizationId)
+  }
+
+  return Option.none()
 }
 
 export const extractAccountIdFromToken = (
@@ -218,6 +260,22 @@ const toTokenDataFromResponse = (token: TokenResponse): TokenData =>
       Date.now() + (token.expires_in ?? DEFAULT_TOKEN_EXPIRY_SECONDS) * 1_000,
     accountId: extractAccountIdFromTokens(token),
   })
+
+const preserveAccountId = (
+  token: TokenData,
+  fallback: Option.Option<string>,
+): TokenData => {
+  if (Option.isSome(token.accountId) || Option.isNone(fallback)) {
+    return token
+  }
+
+  return new TokenData({
+    access: token.access,
+    refresh: token.refresh,
+    expires: token.expires,
+    accountId: fallback,
+  })
+}
 
 const requestDeviceCodeError = (message: string, cause?: unknown) =>
   new CodexAuthError({
@@ -515,7 +573,12 @@ export class CodexAuth extends ServiceMap.Service<CodexAuth>()(
           )
 
           if (Option.isSome(refreshedToken)) {
-            return yield* saveToken(refreshedToken.value)
+            return yield* saveToken(
+              preserveAccountId(
+                refreshedToken.value,
+                currentToken.value.accountId,
+              ),
+            )
           }
 
           yield* clearToken

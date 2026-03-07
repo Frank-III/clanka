@@ -183,13 +183,18 @@ class CodexAuthError extends Schema.TaggedErrorClass<CodexAuthError>()(
       "DeviceFlowFailed",
       "TokenExchangeFailed",
       "RefreshFailed",
-      "JwtParseFailed",
     ),
     message: Schema.String,
     cause: Schema.optional(Schema.Defect),
   },
 ) {}
 ```
+
+JWT claim parsing is best-effort metadata extraction for the optional
+`ChatGPT-Account-Id` header. Malformed JWTs should stay on the
+`Option.none()` path and must not surface a separate auth error. Invalid
+secondary claim shapes should be ignored so valid remaining claim locations can
+still supply an account ID.
 
 ### Service shape
 
@@ -251,6 +256,8 @@ When `get` is called and token is expired:
 
 1. Attempt refresh (`grant_type=refresh_token`)
 2. If refresh succeeds: persist and return refreshed token
+   - If refreshed tokens do not expose a parseable account ID, preserve the
+     previously stored account ID instead of clearing it
 3. If refresh fails: downgrade to fallback (`Option.none`) and run full device
    flow once
 4. If device flow fails: surface `DeviceFlowFailed`
@@ -358,7 +365,7 @@ Implement pure JWT parsing/account extraction helpers using
 **Acceptance criteria**
 
 - All account-id claim shapes supported
-- Malformed tokens safely return none/error path
+- Malformed tokens safely return `Option.none()` without entering the auth error channel
 - No `any` usage
 - `pnpm check && pnpm vitest run` passes
 
