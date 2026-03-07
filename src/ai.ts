@@ -1,15 +1,6 @@
 import { NodeRuntime, NodeServices } from "@effect/platform-node"
-import {
-  Deferred,
-  Effect,
-  FileSystem,
-  Layer,
-  pipe,
-  Ref,
-  Schema,
-  Stream,
-} from "effect"
-import { Chat, Prompt, Tool, Toolkit } from "effect/unstable/ai"
+import { Deferred, Effect, FileSystem, Layer, pipe, Ref, Stream } from "effect"
+import { Chat, Prompt } from "effect/unstable/ai"
 import { CodexAiClient } from "./Codex.ts"
 import { KeyValueStore } from "effect/unstable/persistence"
 import { OpenAiLanguageModel } from "@effect/ai-openai"
