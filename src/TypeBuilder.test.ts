@@ -58,6 +58,18 @@ describe("TypeBuilder", () => {
     )
   })
 
+  it("renders declarations with identifiers and type parameters", () => {
+    expect(
+      TypeBuilder.render(
+        Schema.Option(Schema.Number).annotate({ identifier: "Option" }),
+      ),
+    ).toBe("Option<number>")
+  })
+
+  it("falls back to unknown for declarations without identifiers", () => {
+    expect(TypeBuilder.render(Schema.URL)).toBe("unknown")
+  })
+
   it("renders structs", () => {
     expect(
       TypeBuilder.render(
@@ -306,6 +318,50 @@ describe("TypeBuilder", () => {
         "    boolean",
         "]",
       ),
+    )
+  })
+
+  it("renders recursive suspends using identifier annotations", () => {
+    type Category = {
+      readonly child?: Category
+    }
+
+    const Category: Schema.Schema<Category> = Schema.suspend(
+      (): Schema.Schema<Category> =>
+        Schema.Struct({
+          child: Schema.optionalKey(Category),
+        }).annotate({ identifier: "Category" }),
+    )
+
+    expect(TypeBuilder.render(Category)).toBe(
+      lines("{", "    readonly child?: Category;", "}"),
+    )
+  })
+
+  it("renders recursive arrays using identifier annotations", () => {
+    type Category = {
+      readonly children: ReadonlyArray<Category>
+    }
+
+    const Category: Schema.Schema<Category> = Schema.suspend(
+      (): Schema.Schema<Category> =>
+        Schema.Struct({
+          children: Schema.Array(Category),
+        }).annotate({ identifier: "Category" }),
+    )
+
+    expect(TypeBuilder.render(Category)).toBe(
+      lines("{", "    readonly children: readonly Category[];", "}"),
+    )
+  })
+
+  it("renders transformed schemas from the decoded side", () => {
+    expect(TypeBuilder.render(Schema.NumberFromString)).toBe("number")
+  })
+
+  it("ignores brand annotations", () => {
+    expect(TypeBuilder.render(Schema.String.pipe(Schema.brand("UserId")))).toBe(
+      "string",
     )
   })
 

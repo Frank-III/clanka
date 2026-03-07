@@ -11,6 +11,10 @@ const primitiveTypeNode = (
   kind: ts.KeywordTypeSyntaxKind,
 ): ts.KeywordTypeNode => ts.factory.createKeywordTypeNode(kind)
 
+type RenderContext = {
+  activeNodes: Set<AST.AST>
+}
+
 const readonlyTypeNode = (type: ts.TypeNode): ts.TypeOperatorNode =>
   ts.factory.createTypeOperatorNode(ts.SyntaxKind.ReadonlyKeyword, type)
 
@@ -19,6 +23,35 @@ const nullTypeNode = (): ts.LiteralTypeNode =>
 
 const stringLiteralTypeNode = (value: string): ts.LiteralTypeNode =>
   ts.factory.createLiteralTypeNode(ts.factory.createStringLiteral(value))
+
+const referenceTypeNode = (
+  identifier: string,
+  typeArguments?: ReadonlyArray<ts.TypeNode>,
+): ts.TypeReferenceNode =>
+  ts.factory.createTypeReferenceNode(
+    ts.factory.createIdentifier(identifier),
+    typeArguments,
+  )
+
+const cycleTypeNode = (ast: AST.AST): ts.TypeNode => {
+  const visitedSuspends = new Set<AST.Suspend>()
+  let current: AST.AST = ast
+
+  while (true) {
+    const identifier = AST.resolveIdentifier(current)
+
+    if (identifier !== undefined) {
+      return referenceTypeNode(identifier)
+    }
+
+    if (current._tag !== "Suspend" || visitedSuspends.has(current)) {
+      return unknownTypeNode()
+    }
+
+    visitedSuspends.add(current)
+    current = current.thunk()
+  }
+}
 
 const literalText = (value: AST.Literal["literal"]): string => String(value)
 
@@ -156,6 +189,7 @@ const withJsDoc = <T extends ts.Node>(
 
 const propertySignatureTypeElement = (
   propertySignature: AST.PropertySignature,
+  context: RenderContext,
 ): ts.PropertySignature =>
   withJsDoc(
     ts.factory.createPropertySignature(
@@ -166,13 +200,14 @@ const propertySignatureTypeElement = (
       AST.isOptional(propertySignature.type)
         ? ts.factory.createToken(ts.SyntaxKind.QuestionToken)
         : undefined,
-      toTypeNode(propertySignature.type),
+      toTypeNode(propertySignature.type, context),
     ),
     resolveDocumentation(propertySignature.type),
   )
 
 const indexSignatureTypeElement = (
   indexSignature: AST.IndexSignature,
+  context: RenderContext,
 ): ts.IndexSignatureDeclaration =>
   ts.factory.createIndexSignature(
     undefined,
@@ -182,21 +217,28 @@ const indexSignatureTypeElement = (
         undefined,
         "x",
         undefined,
-        toTypeNode(indexSignature.parameter),
+        toTypeNode(indexSignature.parameter, context),
         undefined,
       ),
     ],
-    toTypeNode(indexSignature.type),
+    toTypeNode(indexSignature.type, context),
   )
 
-const objectsTypeNode = (ast: AST.Objects): ts.TypeLiteralNode =>
+const objectsTypeNode = (
+  ast: AST.Objects,
+  context: RenderContext,
+): ts.TypeLiteralNode =>
   ts.factory.createTypeLiteralNode([
-    ...ast.propertySignatures.map(propertySignatureTypeElement),
-    ...ast.indexSignatures.map(indexSignatureTypeElement),
+    ...ast.propertySignatures.map((propertySignature) =>
+      propertySignatureTypeElement(propertySignature, context),
+    ),
+    ...ast.indexSignatures.map((indexSignature) =>
+      indexSignatureTypeElement(indexSignature, context),
+    ),
   ])
 
-const unionTypeNode = (ast: AST.Union): ts.TypeNode =>
-  unionOfTypeNodes(ast.types.map(toTypeNode))
+const unionTypeNode = (ast: AST.Union, context: RenderContext): ts.TypeNode =>
+  unionOfTypeNodes(ast.types.map((type) => toTypeNode(type, context)))
 
 const enumTypeNode = (ast: AST.Enum): ts.TypeNode =>
   unionOfTypeNodes(
@@ -237,6 +279,7 @@ const pushTemplateLiteralInterpolation = (
 const visitTemplateLiteralPart = (
   state: TemplateLiteralState,
   ast: AST.AST,
+  context: RenderContext,
 ): void => {
   switch (ast._tag) {
     case "Literal":
@@ -244,15 +287,18 @@ const visitTemplateLiteralPart = (
       return
     case "TemplateLiteral":
       for (const part of ast.parts) {
-        visitTemplateLiteralPart(state, part)
+        visitTemplateLiteralPart(state, part, context)
       }
       return
     default:
-      pushTemplateLiteralInterpolation(state, toTypeNode(ast))
+      pushTemplateLiteralInterpolation(state, toTypeNode(ast, context))
   }
 }
 
-const templateLiteralTypeNode = (ast: AST.TemplateLiteral): ts.TypeNode => {
+const templateLiteralTypeNode = (
+  ast: AST.TemplateLiteral,
+  context: RenderContext,
+): ts.TypeNode => {
   const state: TemplateLiteralState = {
     head: "",
     currentText: "",
@@ -260,7 +306,7 @@ const templateLiteralTypeNode = (ast: AST.TemplateLiteral): ts.TypeNode => {
   }
 
   for (const part of ast.parts) {
-    visitTemplateLiteralPart(state, part)
+    visitTemplateLiteralPart(state, part, context)
   }
 
   if (state.spans.length === 0) {
@@ -310,13 +356,19 @@ const stripOptionalTupleUndefined = (ast: AST.AST): AST.AST => {
       )
 }
 
-const tupleElementTypeNode = (ast: AST.AST): ts.TypeNode => {
-  const type = toTypeNode(stripOptionalTupleUndefined(ast))
+const tupleElementTypeNode = (
+  ast: AST.AST,
+  context: RenderContext,
+): ts.TypeNode => {
+  const type = toTypeNode(stripOptionalTupleUndefined(ast), context)
 
   return AST.isOptional(ast) ? ts.factory.createOptionalTypeNode(type) : type
 }
 
-const arraysTypeNode = (ast: AST.Arrays): ts.TypeNode => {
+const arraysTypeNode = (
+  ast: AST.Arrays,
+  context: RenderContext,
+): ts.TypeNode => {
   const [restHead, ...restTail] = ast.rest
 
   if (
@@ -324,68 +376,106 @@ const arraysTypeNode = (ast: AST.Arrays): ts.TypeNode => {
     ast.rest.length === 1 &&
     restHead !== undefined
   ) {
-    const arrayType = ts.factory.createArrayTypeNode(toTypeNode(restHead))
+    const arrayType = ts.factory.createArrayTypeNode(
+      toTypeNode(restHead, context),
+    )
 
     return ast.isMutable ? arrayType : readonlyTypeNode(arrayType)
   }
 
   const tupleType = ts.factory.createTupleTypeNode([
-    ...ast.elements.map(tupleElementTypeNode),
+    ...ast.elements.map((element) => tupleElementTypeNode(element, context)),
     ...(restHead === undefined
       ? []
       : [
           ts.factory.createRestTypeNode(
-            ts.factory.createArrayTypeNode(toTypeNode(restHead)),
+            ts.factory.createArrayTypeNode(toTypeNode(restHead, context)),
           ),
-          ...restTail.map(tupleElementTypeNode),
+          ...restTail.map((element) => tupleElementTypeNode(element, context)),
         ]),
   ])
 
   return ast.isMutable ? tupleType : readonlyTypeNode(tupleType)
 }
 
-const toTypeNode = (ast: AST.AST): ts.TypeNode => {
-  switch (ast._tag) {
-    case "String":
-      return primitiveTypeNode(ts.SyntaxKind.StringKeyword)
-    case "Number":
-      return primitiveTypeNode(ts.SyntaxKind.NumberKeyword)
-    case "Boolean":
-      return primitiveTypeNode(ts.SyntaxKind.BooleanKeyword)
-    case "BigInt":
-      return primitiveTypeNode(ts.SyntaxKind.BigIntKeyword)
-    case "Symbol":
-      return primitiveTypeNode(ts.SyntaxKind.SymbolKeyword)
-    case "Any":
-      return primitiveTypeNode(ts.SyntaxKind.AnyKeyword)
-    case "Unknown":
-      return unknownTypeNode()
-    case "Void":
-      return primitiveTypeNode(ts.SyntaxKind.VoidKeyword)
-    case "Never":
-      return primitiveTypeNode(ts.SyntaxKind.NeverKeyword)
-    case "Undefined":
-      return primitiveTypeNode(ts.SyntaxKind.UndefinedKeyword)
-    case "Null":
-      return nullTypeNode()
-    case "ObjectKeyword":
-      return primitiveTypeNode(ts.SyntaxKind.ObjectKeyword)
-    case "Literal":
-      return literalTypeNode(ast)
-    case "UniqueSymbol":
-      return uniqueSymbolTypeNode(ast)
-    case "Enum":
-      return enumTypeNode(ast)
-    case "TemplateLiteral":
-      return templateLiteralTypeNode(ast)
-    case "Objects":
-      return objectsTypeNode(ast)
-    case "Arrays":
-      return arraysTypeNode(ast)
-    case "Union":
-      return unionTypeNode(ast)
-    default:
-      return unknownTypeNode()
+const declarationTypeNode = (
+  ast: AST.Declaration,
+  context: RenderContext,
+): ts.TypeNode => {
+  const identifier = AST.resolveIdentifier(ast)
+
+  if (identifier === undefined) {
+    return unknownTypeNode()
+  }
+
+  const typeArguments = ast.typeParameters.map((typeParameter) =>
+    toTypeNode(typeParameter, context),
+  )
+
+  return referenceTypeNode(identifier, typeArguments)
+}
+
+const suspendTypeNode = (
+  ast: AST.Suspend,
+  context: RenderContext,
+): ts.TypeNode => toTypeNode(ast.thunk(), context)
+
+const toTypeNode = (ast: AST.AST, context: RenderContext): ts.TypeNode => {
+  if (context.activeNodes.has(ast)) {
+    return cycleTypeNode(ast)
+  }
+
+  context.activeNodes.add(ast)
+
+  try {
+    switch (ast._tag) {
+      case "String":
+        return primitiveTypeNode(ts.SyntaxKind.StringKeyword)
+      case "Number":
+        return primitiveTypeNode(ts.SyntaxKind.NumberKeyword)
+      case "Boolean":
+        return primitiveTypeNode(ts.SyntaxKind.BooleanKeyword)
+      case "BigInt":
+        return primitiveTypeNode(ts.SyntaxKind.BigIntKeyword)
+      case "Symbol":
+        return primitiveTypeNode(ts.SyntaxKind.SymbolKeyword)
+      case "Any":
+        return primitiveTypeNode(ts.SyntaxKind.AnyKeyword)
+      case "Unknown":
+        return unknownTypeNode()
+      case "Void":
+        return primitiveTypeNode(ts.SyntaxKind.VoidKeyword)
+      case "Never":
+        return primitiveTypeNode(ts.SyntaxKind.NeverKeyword)
+      case "Undefined":
+        return primitiveTypeNode(ts.SyntaxKind.UndefinedKeyword)
+      case "Null":
+        return nullTypeNode()
+      case "ObjectKeyword":
+        return primitiveTypeNode(ts.SyntaxKind.ObjectKeyword)
+      case "Literal":
+        return literalTypeNode(ast)
+      case "UniqueSymbol":
+        return uniqueSymbolTypeNode(ast)
+      case "Declaration":
+        return declarationTypeNode(ast, context)
+      case "Enum":
+        return enumTypeNode(ast)
+      case "TemplateLiteral":
+        return templateLiteralTypeNode(ast, context)
+      case "Objects":
+        return objectsTypeNode(ast, context)
+      case "Arrays":
+        return arraysTypeNode(ast, context)
+      case "Union":
+        return unionTypeNode(ast, context)
+      case "Suspend":
+        return suspendTypeNode(ast, context)
+      default:
+        return unknownTypeNode()
+    }
+  } finally {
+    context.activeNodes.delete(ast)
   }
 }
 
@@ -408,4 +498,8 @@ export const printNode = (
 export const render = (
   schema: Schema.Top,
   options?: ts.PrinterOptions,
-): string => printNode(toTypeNode(AST.toType(schema.ast)), options)
+): string =>
+  printNode(
+    toTypeNode(AST.toType(schema.ast), { activeNodes: new Set() }),
+    options,
+  )
