@@ -47,12 +47,22 @@ const ToolHandlers = Tools.toLayer(
       execute: Effect.fn("Tools.execute")(function* ({ script }) {
         const cwd = yield* CurrentDirectory
         const deferred = yield* TaskCompleteDeferred
+        yield* Effect.logInfo(`Executing script:\n${script}`)
         return yield* pipe(
           executor.execute({
             tools,
             script,
           }),
           Stream.mkString,
+          Effect.tap(
+            Effect.fn(function* (output) {
+              const truncated =
+                output.length > 1500
+                  ? output.slice(0, 1500) + "\n[output truncated]"
+                  : output
+              yield* Effect.logInfo(`Script output:\n${truncated}`)
+            }),
+          ),
           Effect.provideService(CurrentDirectory, cwd),
           Effect.provideService(TaskCompleteDeferred, deferred),
         )
@@ -175,7 +185,7 @@ And the output would look like this:
     OpenAiLanguageModel.model("gpt-5.4", {
       store: false,
       reasoning: {
-        effort: "low",
+        effort: "xhigh",
         summary: "auto",
       },
     }).pipe(Layer.provide(ClientLayer)),
