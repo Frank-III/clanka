@@ -1,5 +1,6 @@
 import {
   Array,
+  Data,
   Deferred,
   Effect,
   FileSystem,
@@ -15,7 +16,7 @@ import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import * as Glob from "glob"
 import * as Rg from "@vscode/ripgrep"
 import { NodeServices } from "@effect/platform-node"
-import { patchContent } from "./ApplyPatch.ts"
+import { parsePatch, patchChunks } from "./ApplyPatch.ts"
 
 export class CurrentDirectory extends ServiceMap.Service<
   CurrentDirectory,
@@ -30,12 +31,10 @@ export class TaskCompleteDeferred extends ServiceMap.Service<
 export const AgentTools = Toolkit.make(
   Tool.make("applyPatch", {
     description:
-      "Apply a patch to a single file. **Use this for updating files**.",
-    parameters: Schema.Struct({
-      path: Schema.String,
-      patchText: Schema.String.annotate({
-        documentation: "Raw @@ hunks or one wrapped update block.",
-      }),
+      "Apply a patch across one or more files. Use this to add, delete or update files.",
+    parameters: Schema.String.annotate({
+      identifier: "patchText",
+      documentation: "Wrapped patch with Add/Delete/Update sections.",
     }),
     success: Schema.String,
     dependencies: [CurrentDirectory],
@@ -49,14 +48,6 @@ export const AgentTools = Toolkit.make(
       endLine: Schema.optional(Schema.Number),
     }),
     success: Schema.NullOr(Schema.String),
-    dependencies: [CurrentDirectory],
-  }),
-  Tool.make("writeFile", {
-    description: "Write content to a file, replacing it if it already exists.",
-    parameters: Schema.Struct({
-      path: Schema.String,
-      content: Schema.String,
-    }),
     dependencies: [CurrentDirectory],
   }),
   Tool.make("ls", {
@@ -96,13 +87,6 @@ export const AgentTools = Toolkit.make(
       identifier: "command",
     }),
     success: Schema.String,
-    dependencies: [CurrentDirectory],
-  }),
-  Tool.make("removeFile", {
-    description: "Remove a file at the given path.",
-    parameters: Schema.String.annotate({
-      identifier: "path",
-    }),
     dependencies: [CurrentDirectory],
   }),
   Tool.make("sleep", {
@@ -155,23 +139,6 @@ export const AgentToolHandlers = AgentTools.toLayer(
           Effect.orDie,
         )
       }),
-      writeFile: Effect.fn("AgentTools.writeFile")(function* (options) {
-        yield* Effect.logInfo(`Calling "writeFile"`).pipe(
-          Effect.annotateLogs({ path: options.path }),
-        )
-        const cwd = yield* CurrentDirectory
-        yield* fs.writeFileString(
-          pathService.resolve(cwd, options.path),
-          options.content,
-        )
-      }, Effect.orDie),
-      removeFile: Effect.fn("AgentTools.removeFile")(function* (path) {
-        yield* Effect.logInfo(`Calling "removeFile"`).pipe(
-          Effect.annotateLogs({ path }),
-        )
-        const cwd = yield* CurrentDirectory
-        yield* fs.remove(pathService.resolve(cwd, path))
-      }, Effect.orDie),
       ls: Effect.fn("AgentTools.ls")(function* (path) {
         yield* Effect.logInfo(`Calling "readdir"`).pipe(
           Effect.annotateLogs({ path }),
@@ -249,17 +216,141 @@ export const AgentToolHandlers = AgentTools.toLayer(
         yield* Effect.logInfo(`Calling "sleep" for ${ms}ms`)
         return yield* Effect.sleep(ms)
       }),
-      applyPatch: Effect.fn("AgentTools.applyPatch")(function* (options) {
-        yield* Effect.logInfo(`Calling "applyPatch"`).pipe(
-          Effect.annotateLogs({ path: options.path }),
-        )
+      applyPatch: Effect.fn("AgentTools.applyPatch")(function* (patchText) {
+        yield* Effect.logInfo(`Calling "applyPatch"`)
         const cwd = yield* CurrentDirectory
-        const file = pathService.resolve(cwd, options.path)
-        const input = yield* fs.readFileString(file)
-        const next = patchContent(file, input, options.patchText)
-        yield* fs.writeFileString(file, next)
-        const path = pathService.relative(cwd, file).replaceAll("\\", "/")
-        return `M ${path}`
+        // const err = (cause: unknown) =>
+        //   cause instanceof Error ? cause : new Error(String(cause))
+        const fail = (path: string, reason: "delete" | "update") =>
+          Effect.fail(
+            new ApplyPatchError({
+              message: `verification failed: Failed to read file to ${reason}: ${path}`,
+            }),
+          )
+        const state = new Map<string, string | null>()
+        const steps = [] as Array<
+          | {
+              readonly type: "add" | "update"
+              readonly path: string
+              readonly next: string
+            }
+          | {
+              readonly type: "move"
+              readonly path: string
+              readonly movePath: string
+              readonly next: string
+            }
+          | {
+              readonly type: "delete"
+              readonly path: string
+            }
+        >
+        const out = [] as string[]
+        const rel = (path: string) =>
+          pathService.relative(cwd, path).replaceAll("\\", "/")
+        const load = Effect.fn("AgentTools.applyPatch.load")(function* (
+          path: string,
+          reason: "delete" | "update",
+        ) {
+          if (state.has(path)) {
+            const input = state.get(path)
+            if (input === null) {
+              return yield* fail(path, reason)
+            }
+            return input!
+          }
+
+          const input = yield* fs.readFileString(path)
+          state.set(path, input)
+          return input
+        })
+
+        for (const patch of parsePatch(patchText)) {
+          const path = pathService.resolve(cwd, patch.path)
+          switch (patch.type) {
+            case "add": {
+              const next =
+                patch.content.length === 0 || patch.content.endsWith("\n")
+                  ? patch.content
+                  : `${patch.content}\n`
+              state.set(path, next)
+              steps.push({
+                type: "add",
+                path,
+                next,
+              })
+              out.push(`A ${rel(path)}`)
+              break
+            }
+            case "delete": {
+              yield* load(path, "delete")
+              state.set(path, null)
+              steps.push({
+                type: "delete",
+                path,
+              })
+              out.push(`D ${rel(path)}`)
+              break
+            }
+            case "update": {
+              const input = yield* load(path, "update")
+              const next = patchChunks(path, input, patch.chunks)
+              const movePath =
+                patch.movePath === undefined
+                  ? undefined
+                  : pathService.resolve(cwd, patch.movePath)
+
+              if (movePath === undefined || movePath === path) {
+                state.set(path, next)
+                steps.push({
+                  type: "update",
+                  path,
+                  next,
+                })
+                out.push(`M ${rel(path)}`)
+                break
+              }
+
+              state.set(path, null)
+              state.set(movePath, next)
+              steps.push({
+                type: "move",
+                path,
+                movePath,
+                next,
+              })
+              out.push(`M ${rel(movePath)}`)
+              break
+            }
+          }
+        }
+
+        for (const step of steps) {
+          switch (step.type) {
+            case "add":
+            case "update": {
+              yield* fs.makeDirectory(pathService.dirname(step.path), {
+                recursive: true,
+              })
+              yield* fs.writeFileString(step.path, step.next)
+              break
+            }
+            case "move": {
+              yield* fs.makeDirectory(pathService.dirname(step.movePath), {
+                recursive: true,
+              })
+              yield* fs.writeFileString(step.movePath, step.next)
+              yield* fs.remove(step.path)
+              break
+            }
+            case "delete": {
+              yield* fs.remove(step.path)
+              break
+            }
+          }
+        }
+
+        return `Success. Updated the following files:\n${out.join("\n")}`
       }, Effect.orDie),
       taskComplete: Effect.fn("AgentTools.taskComplete")(function* (message) {
         const deferred = yield* TaskCompleteDeferred
@@ -268,3 +359,7 @@ export const AgentToolHandlers = AgentTools.toLayer(
     })
   }),
 ).pipe(Layer.provide(NodeServices.layer))
+
+export class ApplyPatchError extends Data.TaggedClass("ApplyPatchError")<{
+  readonly message: string
+}> {}

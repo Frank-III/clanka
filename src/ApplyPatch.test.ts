@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { patchContent } from "./ApplyPatch.ts"
+import { parsePatch, patchContent } from "./ApplyPatch.ts"
 
 describe("patchContent", () => {
   it("applies raw hunks", () => {
@@ -26,6 +26,80 @@ describe("patchContent", () => {
         "*** Begin Patch\n*** Update File: ignored.txt\n@@\n alpha\n+beta\n omega\n*** End Patch",
       ),
     ).toBe("alpha\nbeta\nomega\n")
+  })
+
+  it("parses multi-file wrapped patches", () => {
+    expect(
+      parsePatch(
+        [
+          "*** Begin Patch",
+          "*** Add File: hello.txt",
+          "+Hello world",
+          "*** Update File: src/app.ts",
+          "*** Move to: src/main.ts",
+          "@@ keep",
+          " keep",
+          "-old",
+          "+new",
+          "*** Delete File: obsolete.txt",
+          "*** End Patch",
+        ].join("\n"),
+      ),
+    ).toEqual([
+      {
+        type: "add",
+        path: "hello.txt",
+        content: "Hello world",
+      },
+      {
+        type: "update",
+        path: "src/app.ts",
+        movePath: "src/main.ts",
+        chunks: [
+          {
+            ctx: "keep",
+            old: ["keep", "old"],
+            next: ["keep", "new"],
+          },
+        ],
+      },
+      {
+        type: "delete",
+        path: "obsolete.txt",
+      },
+    ])
+  })
+
+  it("parses wrapped patches when hunks contain marker text", () => {
+    expect(
+      parsePatch(
+        [
+          "*** Begin Patch",
+          "*** Update File: src/app.ts",
+          "@@",
+          " *** End Patch",
+          "-old",
+          "+new",
+          "*** Delete File: obsolete.txt",
+          "*** End Patch",
+        ].join("\n"),
+      ),
+    ).toEqual([
+      {
+        type: "update",
+        path: "src/app.ts",
+        chunks: [
+          {
+            old: ["*** End Patch", "old"],
+            next: ["*** End Patch", "new"],
+          },
+        ],
+      },
+      {
+        type: "delete",
+        path: "obsolete.txt",
+      },
+    ])
   })
 
   it("parses heredoc-wrapped hunks", () => {
