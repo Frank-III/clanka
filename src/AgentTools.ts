@@ -40,15 +40,6 @@ export const AgentTools = Toolkit.make(
     success: Schema.NullOr(Schema.String),
     dependencies: [CurrentDirectory],
   }),
-  Tool.make("applyPatch", {
-    description:
-      "Apply a patch across one or more files. Use this to edit file(s). Provide a wrapped patch with Add/Delete/Update sections.",
-    parameters: Schema.String.annotate({
-      identifier: "patchText",
-    }),
-    success: Schema.String,
-    dependencies: [CurrentDirectory],
-  }),
   Tool.make("createFile", {
     description:
       "Write content to a file, creating parent directories if needed.",
@@ -56,6 +47,15 @@ export const AgentTools = Toolkit.make(
       path: Schema.String,
       content: Schema.String,
     }),
+    dependencies: [CurrentDirectory],
+  }),
+  Tool.make("applyPatch", {
+    description:
+      "Apply a patch across one or more files. Use this to edit file(s). Provide a wrapped patch with Add/Delete/Update sections.",
+    parameters: Schema.String.annotate({
+      identifier: "patchText",
+    }),
+    success: Schema.String,
     dependencies: [CurrentDirectory],
   }),
   Tool.make("removeFile", {
