@@ -7,6 +7,13 @@
 
 Run `pnpm check` and `pnpm test` after changing any code.
 
+# Changesets
+
+Every pull request should include a changeset describing the changes made.
+Changesets are added to the `.changeset/` directory.
+
+There should one be ONE changeset per pull request.
+
 # Specifications
 
 To learn more about previous and current specifications for this project, see
