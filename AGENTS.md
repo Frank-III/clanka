@@ -5,7 +5,7 @@
 
 # Validations
 
-Run `pnpm check` after changing any code.
+Run `pnpm check` and `pnpm test` after changing any code.
 
 # Specifications
 
