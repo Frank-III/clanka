@@ -192,7 +192,7 @@ export const AgentToolHandlers = AgentTools.toLayer(
         })
       }, Effect.orDie),
       ls: Effect.fn("AgentTools.ls")(function* (path) {
-        yield* Effect.logInfo(`Calling "readdir"`).pipe(
+        yield* Effect.logInfo(`Calling "ls"`).pipe(
           Effect.annotateLogs({ path }),
         )
         const cwd = yield* CurrentDirectory
