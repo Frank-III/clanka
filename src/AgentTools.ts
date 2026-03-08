@@ -29,17 +29,6 @@ export class TaskCompleteDeferred extends ServiceMap.Service<
 >()("clanka/AgentTools/TaskCompleteDeferred") {}
 
 export const AgentTools = Toolkit.make(
-  Tool.make("applyPatch", {
-    description:
-      "Apply a patch across one or more files. Use this to add, delete or update files.",
-    parameters: Schema.String.annotate({
-      identifier: "patchText",
-      documentation:
-        "Wrapped patch with Add/Delete/Update sections. Use String.raw(``) to create the string.",
-    }),
-    success: Schema.String,
-    dependencies: [CurrentDirectory],
-  }),
   Tool.make("readFile", {
     description:
       "Read a file and optionally filter the lines to return. Returns null if the file doesn't exist.",
@@ -49,6 +38,38 @@ export const AgentTools = Toolkit.make(
       endLine: Schema.optional(Schema.Number),
     }),
     success: Schema.NullOr(Schema.String),
+    dependencies: [CurrentDirectory],
+  }),
+  Tool.make("applyPatch", {
+    description:
+      "Apply a patch across one or more files. Use this to edit file(s). Provide a wrapped patch with Add/Delete/Update sections.",
+    parameters: Schema.String.annotate({
+      identifier: "patchText",
+    }),
+    success: Schema.String,
+    dependencies: [CurrentDirectory],
+  }),
+  Tool.make("createFile", {
+    description:
+      "Write content to a file, creating parent directories if needed.",
+    parameters: Schema.Struct({
+      path: Schema.String,
+      content: Schema.String,
+    }),
+    dependencies: [CurrentDirectory],
+  }),
+  Tool.make("removeFile", {
+    description: "Remove a file.",
+    parameters: Schema.String.annotate({
+      identifier: "path",
+    }),
+    dependencies: [CurrentDirectory],
+  }),
+  Tool.make("mkdir", {
+    description: "Make a directory, creating parent directories if needed.",
+    parameters: Schema.String.annotate({
+      identifier: "path",
+    }),
     dependencies: [CurrentDirectory],
   }),
   Tool.make("ls", {
@@ -140,6 +161,33 @@ export const AgentToolHandlers = AgentTools.toLayer(
           Effect.orDie,
         )
       }),
+      createFile: Effect.fn("AgentTools.createFile")(function* (options) {
+        yield* Effect.logInfo(`Calling "createFile"`).pipe(
+          Effect.annotateLogs({ path: options.path }),
+        )
+        const cwd = yield* CurrentDirectory
+        const path = pathService.resolve(cwd, options.path)
+        yield* fs.makeDirectory(pathService.dirname(path), {
+          recursive: true,
+        })
+        yield* fs.writeFileString(path, options.content)
+      }, Effect.orDie),
+      removeFile: Effect.fn("AgentTools.removeFile")(function* (path) {
+        yield* Effect.logInfo(`Calling "removeFile"`).pipe(
+          Effect.annotateLogs({ path }),
+        )
+        const cwd = yield* CurrentDirectory
+        return yield* fs.remove(pathService.resolve(cwd, path), { force: true })
+      }, Effect.orDie),
+      mkdir: Effect.fn("AgentTools.mkdir")(function* (path) {
+        yield* Effect.logInfo(`Calling "mkdir"`).pipe(
+          Effect.annotateLogs({ path }),
+        )
+        const cwd = yield* CurrentDirectory
+        return yield* fs.makeDirectory(pathService.resolve(cwd, path), {
+          recursive: true,
+        })
+      }, Effect.orDie),
       ls: Effect.fn("AgentTools.ls")(function* (path) {
         yield* Effect.logInfo(`Calling "readdir"`).pipe(
           Effect.annotateLogs({ path }),
