@@ -136,9 +136,14 @@ export const make: <
     system += `
 # AGENTS.md
 
-The following instructions are in AGENTS.md in the current directory. ALWAYS follow these instructions when completing tasks:
+The following instructions are from ./AGENTS.md in the current directory.
+You do not need to read this file again.
 
+**ALWAYS follow these instructions when completing tasks**:
+
+<!-- AGENTS.md start -->
 ${agentsMd.value}
+<!-- AGENTS.md end -->
 `
   }
 
