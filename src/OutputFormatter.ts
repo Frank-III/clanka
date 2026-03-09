@@ -73,13 +73,14 @@ const prettyPrefixed = (prefix: string): OutputFormatter =>
           console.log(
             prefix + chalkScriptHeading(`${scriptIcon} Script output`),
           )
+          console.log("")
           const lines = output.output.split("\n")
           const truncated =
             lines.length > 20
               ? lines.slice(0, 20).join("\n") + "\n... (truncated)"
               : output.output
           console.log(chalk.dim(truncated))
-          console.log("")
+          console.log(chalk.reset(""))
           break
         }
       }
