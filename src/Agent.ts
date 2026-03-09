@@ -112,18 +112,30 @@ export const make: <
   >()
 
   let system = yield* generateSystem(allTools)
-  if (options.system) {
-    system += `\n${options.system}`
-  }
-  const withSystemPrompt = OpenAiLanguageModel.withConfigOverride({
-    store: false,
-    instructions: system,
-  })
 
   const agentsMd = yield* pipe(
     fs.readFileString(pathService.resolve(options.directory, "AGENTS.md")),
     Effect.option,
   )
+
+  if (Option.isSome(agentsMd)) {
+    system += `
+# AGENTS.md
+
+The following instructions are in AGENTS.md in the current directory. ALWAYS follow these instructions when completing tasks:
+
+${agentsMd.value}
+`
+  }
+
+  if (options.system) {
+    system += `\n${options.system}\n`
+  }
+
+  const withSystemPrompt = OpenAiLanguageModel.withConfigOverride({
+    store: false,
+    instructions: system,
+  })
 
   let subagentId = 0
 
@@ -155,27 +167,29 @@ ${prompt}`),
             new SubagentStart({ id, prompt, model, provider }),
           )
           return yield* stream.pipe(
-            Stream.runForEach((part) => {
-              switch (part._tag) {
-                case "SubagentStart":
-                case "SubagentComplete":
-                case "SubagentPart":
-                  return Effect.void
+            Stream.runForEachArray((parts) => {
+              for (const part of parts) {
+                switch (part._tag) {
+                  case "SubagentStart":
+                  case "SubagentComplete":
+                  case "SubagentPart":
+                    break
 
-                default:
-                  return Queue.offer(
-                    output,
-                    new SubagentPart({ id, part }),
-                  )
+                  default:
+                    Queue.offerUnsafe(output, new SubagentPart({ id, part }))
+                    break
+                }
               }
+              return Effect.void
             }),
             Effect.as(""),
-            Effect.catch((finished) =>
-              Queue.offer(
+            Effect.catch((finished) => {
+              Queue.offerUnsafe(
                 output,
                 new SubagentComplete({ id, summary: finished.summary }),
-              ).pipe(Effect.as(finished.summary)),
-            ),
+              )
+              return Effect.succeed(finished.summary)
+            }),
           )
         }).pipe(
           options.subagentModel
@@ -186,18 +200,6 @@ ${prompt}`),
     }).pipe(
       ServiceMap.add(CurrentDirectory, options.directory),
       ServiceMap.add(TaskCompleteDeferred, deferred),
-    )
-
-    prompt = Prompt.concat(
-      prompt,
-      agentsMd.pipe(
-        Option.map((md) =>
-          Prompt.make(`Here is a copy of ./AGENTS.md. ALWAYS follow these instructions when completing the above task:
-
-${md}`),
-        ),
-        Option.getOrElse(() => Prompt.empty),
-      ),
     )
 
     if (provider !== "openai") {
@@ -217,7 +219,9 @@ ${md}`),
             Stream.mkString,
           )
           Queue.offerUnsafe(output, new ScriptEnd({ output: result }))
-          prompt = Prompt.concat(prompt, `Javascript output:\n\n${result}`)
+          prompt = Prompt.concat(prompt, [
+            { role: "assistant", content: `Javascript output:\n\n${result}` },
+          ])
           currentScript = ""
         }
 
@@ -347,7 +351,6 @@ Javascript output:
 
 # Guidelines
 
-- Repect the users AGENTS.md file and ALWAYS follow the instructions in it.
 - Use the current state of the codebase to inform your decisions. Don't look at git history unless explicity asked to.
 - Only add comments when necessary.
 - Use the "subagent" tool to delegate large tasks / exploration. Run multiple subagents in parallel with Promise.all
