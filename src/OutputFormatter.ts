@@ -20,6 +20,7 @@ export type OutputFormatter<E = never, R = never> = (
 export const pretty: OutputFormatter = (stream) =>
   Stream.suspend(() => {
     let hadReasoningDelta = false
+    let reasoningStarted = false
     return stream.pipe(
       Stream.map((output) => {
         let prefix = ""
@@ -39,15 +40,24 @@ ${chalk.dim(output.prompt)}\n`
 ${output.summary}\n`
           }
           case "ReasoningStart": {
-            return (
-              prefix + chalkReasoningHeading(`${thinkingIcon} Thinking:`) + " "
-            )
+            reasoningStarted = true
+            return ""
           }
           case "ReasoningDelta": {
             hadReasoningDelta = true
+            if (reasoningStarted) {
+              reasoningStarted = false
+              return (
+                prefix +
+                chalkReasoningHeading(`${thinkingIcon} Thinking:`) +
+                " " +
+                output.delta
+              )
+            }
             return output.delta
           }
           case "ReasoningEnd": {
+            reasoningStarted = false
             if (hadReasoningDelta) {
               hadReasoningDelta = false
               return "\n\n"
