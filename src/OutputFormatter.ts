@@ -18,72 +18,54 @@ export type OutputFormatter<E = never, R = never> = (
  * @category Pretty
  */
 export const pretty: OutputFormatter = (stream) =>
-  Stream.suspend(() => {
-    let hadReasoningDelta = false
-    let reasoningStarted = false
-    return stream.pipe(
-      Stream.map((output) => {
-        let prefix = ""
-        if (output._tag === "SubagentPart") {
-          prefix = chalk.magenta(`Subagent #${output.id}:`) + " "
-          output = output.part
-        }
-        switch (output._tag) {
-          case "SubagentStart": {
-            return `${chalkSubagentHeading(`${subagentIcon} Subagent #${output.id} starting (${output.modelAndProvider})`)}
+  stream.pipe(
+    Stream.map((output) => {
+      let prefix = ""
+      if (output._tag === "SubagentPart") {
+        prefix = chalk.magenta(`Subagent #${output.id}:`) + " "
+        output = output.part
+      }
+      switch (output._tag) {
+        case "SubagentStart": {
+          return `${chalkSubagentHeading(`${subagentIcon} Subagent #${output.id} starting (${output.modelAndProvider})`)}
 
 ${chalk.dim(output.prompt)}\n`
-          }
-          case "SubagentComplete": {
-            return `${chalkSubagentHeading(`${subagentIcon} Subagent #${output.id} complete`)}
+        }
+        case "SubagentComplete": {
+          return `${chalkSubagentHeading(`${subagentIcon} Subagent #${output.id} complete`)}
 
 ${output.summary}\n`
-          }
-          case "ReasoningStart": {
-            reasoningStarted = true
-            return ""
-          }
-          case "ReasoningDelta": {
-            hadReasoningDelta = true
-            if (reasoningStarted) {
-              reasoningStarted = false
-              return (
-                prefix +
-                chalkReasoningHeading(`${thinkingIcon} Thinking:`) +
-                " " +
-                output.delta
-              )
-            }
-            return output.delta
-          }
-          case "ReasoningEnd": {
-            reasoningStarted = false
-            if (hadReasoningDelta) {
-              hadReasoningDelta = false
-              return "\n\n"
-            }
-            return ""
-          }
-          case "ScriptStart": {
-            return `${prefix}${chalkScriptHeading(`${scriptIcon} Executing script`)}\n\n${chalk.dim(output.script)}\n\n`
-          }
-          case "ScriptEnd": {
-            const lines = output.output.split("\n")
-            const truncated =
-              lines.length > 20
-                ? lines.slice(0, 20).join("\n") + "\n... (truncated)"
-                : output.output
-            return `${prefix}${chalkScriptHeading(`${scriptIcon} Script output`)}\n\n${chalk.dim(truncated)}\n\n`
-          }
         }
-      }),
-      Stream.catch((finished) =>
-        Stream.succeed(
-          `\n${chalk.bold.green(`${subagentIcon} Task complete:`)}\n\n${finished.summary}`,
-        ),
+        case "ReasoningStart": {
+          return (
+            prefix + chalkReasoningHeading(`${thinkingIcon} Thinking:`) + " "
+          )
+        }
+        case "ReasoningDelta": {
+          return output.delta
+        }
+        case "ReasoningEnd": {
+          return "\n\n"
+        }
+        case "ScriptStart": {
+          return `${prefix}${chalkScriptHeading(`${scriptIcon} Executing script`)}\n\n${chalk.dim(output.script)}\n\n`
+        }
+        case "ScriptEnd": {
+          const lines = output.output.split("\n")
+          const truncated =
+            lines.length > 20
+              ? lines.slice(0, 20).join("\n") + "\n... (truncated)"
+              : output.output
+          return `${prefix}${chalkScriptHeading(`${scriptIcon} Script output`)}\n\n${chalk.dim(truncated)}\n\n`
+        }
+      }
+    }),
+    Stream.catch((finished) =>
+      Stream.succeed(
+        `\n${chalk.bold.green(`${subagentIcon} Task complete:`)}\n\n${finished.summary}`,
       ),
-    )
-  })
+    ),
+  )
 
 const chalkScriptHeading = chalk.bold.blue
 const chalkSubagentHeading = chalk.bold.magenta

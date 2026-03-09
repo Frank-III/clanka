@@ -234,6 +234,8 @@ ${prompt}`),
         }
 
         let response = Array.empty<StreamPart<{}>>()
+        let reasoningStarted = false
+        let hadReasoningDelta = false
         yield* pipe(
           ai.streamText({ prompt }),
           Stream.takeUntil(
@@ -242,6 +244,7 @@ ${prompt}`),
           ),
           Stream.runForEachArray((parts) => {
             response.push(...parts)
+
             for (const part of parts) {
               switch (part.type) {
                 case "text-start":
@@ -251,16 +254,25 @@ ${prompt}`),
                   currentScript += part.delta
                   break
                 case "reasoning-start":
-                  Queue.offerUnsafe(output, new ReasoningStart())
+                  reasoningStarted = true
                   break
                 case "reasoning-delta":
+                  hadReasoningDelta = true
+                  if (reasoningStarted) {
+                    reasoningStarted = false
+                    Queue.offerUnsafe(output, new ReasoningStart())
+                  }
                   Queue.offerUnsafe(
                     output,
                     new ReasoningDelta({ delta: part.delta }),
                   )
                   break
                 case "reasoning-end":
-                  Queue.offerUnsafe(output, new ReasoningEnd())
+                  reasoningStarted = false
+                  if (hadReasoningDelta) {
+                    hadReasoningDelta = false
+                    Queue.offerUnsafe(output, new ReasoningEnd())
+                  }
                   break
                 case "finish":
                   // console.log("Tokens used:", part.usage, "\n")
