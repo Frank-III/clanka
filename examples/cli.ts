@@ -25,7 +25,7 @@ const AgentModel = OpenAiLanguageModel.model("gpt-5.4", {
 
 const SubAgentModel = OpenAiLanguageModel.model("gpt-5.4", {
   reasoning: {
-    effort: "low",
+    effort: "high",
     summary: "auto",
   },
 }).pipe(Layer.provide(CodexLayer))

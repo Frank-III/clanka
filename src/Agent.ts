@@ -139,14 +139,8 @@ ${agentsMd.value}
 
   let agentCounter = 0
 
-  const reasoningState = new Map<
-    number,
-    {
-      buffer: string
-      ended: boolean
-    }
-  >()
-  let currentReasoningAgent: number | null = null
+  const outputBuffer = new Map<number, Array<Output>>()
+  let currentOutputAgent: number | null = null
 
   const spawn: (
     agentId: number,
@@ -161,10 +155,30 @@ ${agentsMd.value}
     const deferred = yield* Deferred.make<string>()
     const output = yield* Queue.make<Output, AgentFinished>()
 
-    function bufferReasoningDelta(agentId: number, delta: string) {
-      const state = reasoningState.get(agentId) ?? { buffer: "", ended: false }
-      state.buffer += delta
-      reasoningState.set(agentId, state)
+    function maybeSend(agentId: number, part: Output, lock = false) {
+      if (currentOutputAgent === null || currentOutputAgent === agentId) {
+        Queue.offerUnsafe(output, part)
+        if (lock) {
+          currentOutputAgent = agentId
+        }
+        return true
+      }
+      const state = outputBuffer.get(agentId) ?? []
+      state.push(part)
+      return false
+    }
+
+    function flushBuffer() {
+      currentOutputAgent = null
+      for (const [id, state] of outputBuffer) {
+        outputBuffer.delete(id)
+        Queue.offerAllUnsafe(output, state)
+        const lastPart = state[state.length - 1]!
+        if (lastPart._tag === "ReasoningDelta") {
+          currentOutputAgent = id
+          break
+        }
+      }
     }
 
     const taskServices = SubagentContext.serviceMap({
@@ -227,7 +241,7 @@ ${prompt}`),
     yield* Effect.gen(function* () {
       while (true) {
         if (currentScript.length > 0) {
-          Queue.offerUnsafe(output, new ScriptStart({ script: currentScript }))
+          maybeSend(agentId, new ScriptStart({ script: currentScript }))
           const result = yield* pipe(
             executor.execute({
               tools,
@@ -235,7 +249,7 @@ ${prompt}`),
             }),
             Stream.mkString,
           )
-          Queue.offerUnsafe(output, new ScriptEnd({ output: result }))
+          maybeSend(agentId, new ScriptEnd({ output: result }))
           prompt = Prompt.concat(prompt, [
             { role: "assistant", content: `Javascript output:\n\n${result}` },
           ])
@@ -275,73 +289,18 @@ ${prompt}`),
                   break
                 case "reasoning-delta":
                   hadReasoningDelta = true
-                  if (
-                    currentReasoningAgent !== null &&
-                    currentReasoningAgent !== agentId
-                  ) {
-                    reasoningStarted = false
-                    bufferReasoningDelta(agentId, part.delta)
-                    break
-                  }
                   if (reasoningStarted) {
                     reasoningStarted = false
-                    currentReasoningAgent = agentId
-                    Queue.offerUnsafe(output, new ReasoningStart())
+                    maybeSend(agentId, new ReasoningStart(), true)
                   }
-                  Queue.offerUnsafe(
-                    output,
-                    new ReasoningDelta({ delta: part.delta }),
-                  )
+                  maybeSend(agentId, new ReasoningDelta({ delta: part.delta }))
                   break
                 case "reasoning-end":
                   reasoningStarted = false
-                  if (
-                    currentReasoningAgent !== null &&
-                    currentReasoningAgent !== agentId
-                  ) {
-                    reasoningStarted = false
-                    const state = reasoningState.get(agentId)!
-                    state.ended = true
-                    break
-                  }
                   if (hadReasoningDelta) {
                     hadReasoningDelta = false
-                    Queue.offerUnsafe(output, new ReasoningEnd())
-                  }
-                  currentReasoningAgent = null
-                  for (const [id, state] of reasoningState) {
-                    reasoningState.delete(id)
-                    Queue.offerUnsafe(
-                      output,
-                      id > 0
-                        ? new SubagentPart({
-                            id,
-                            part: new ReasoningStart(),
-                          })
-                        : new ReasoningStart(),
-                    )
-                    Queue.offerUnsafe(
-                      output,
-                      id > 0
-                        ? new SubagentPart({
-                            id,
-                            part: new ReasoningDelta({ delta: state.buffer }),
-                          })
-                        : new ReasoningDelta({ delta: state.buffer }),
-                    )
-                    if (!state.ended) {
-                      currentReasoningAgent = id
-                      break
-                    }
-                    Queue.offerUnsafe(
-                      output,
-                      id > 0
-                        ? new SubagentPart({
-                            id,
-                            part: new ReasoningEnd(),
-                          })
-                        : new ReasoningEnd(),
-                    )
+                    const sent = maybeSend(agentId, new ReasoningEnd())
+                    if (sent) flushBuffer()
                   }
                   break
                 case "finish":
