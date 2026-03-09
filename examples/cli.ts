@@ -18,14 +18,14 @@ const CodexLayer = Codex.CodexAiClient.pipe(
 
 const AgentModel = OpenAiLanguageModel.model("gpt-5.4", {
   reasoning: {
-    effort: "medium",
+    effort: "xhigh",
     summary: "auto",
   },
 }).pipe(Layer.provide(CodexLayer))
 
-const SubAgentModel = OpenAiLanguageModel.model("gpt-5.3-codex-spark", {
+const SubAgentModel = OpenAiLanguageModel.model("gpt-5.4", {
   reasoning: {
-    effort: "medium",
+    effort: "low",
     summary: "auto",
   },
 }).pipe(Layer.provide(CodexLayer))

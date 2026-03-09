@@ -143,7 +143,11 @@ export const make: <
     const taskServices = SubagentContext.serviceMap({
       spawn: ({ prompt }) => {
         let id = ++subagentId
-        return spawn(Prompt.make(prompt)).pipe(
+        return spawn(
+          Prompt.make(`You have been spawned using "subagent" to complete the following task:
+
+${prompt}`),
+        ).pipe(
           Stream.broadcast({
             capacity: "unbounded",
           }),
