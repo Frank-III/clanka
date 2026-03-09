@@ -36,7 +36,6 @@ import { ToolkitRenderer } from "./ToolkitRenderer.ts"
 import { ModelName, ProviderName } from "effect/unstable/ai/Model"
 import { type StreamPart } from "effect/unstable/ai/Response"
 import type { ChildProcessSpawner } from "effect/unstable/process"
-import { extractScript } from "./ScriptExtraction.ts"
 
 /**
  * @since 1.0.0
@@ -268,7 +267,6 @@ ${prompt}`),
     yield* Effect.gen(function* () {
       while (true) {
         if (!singleToolMode && currentScript.length > 0) {
-          currentScript = extractScript(currentScript)
           const result = yield* executeScript(currentScript)
           prompt = Prompt.concat(prompt, [
             {
