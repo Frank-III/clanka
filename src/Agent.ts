@@ -340,10 +340,10 @@ Javascript output:
 
 # Guidelines
 
+- Repect the users AGENTS.md file and ALWAYS follow the instructions in it.
 - Use the current state of the codebase to inform your decisions. Don't look at git history unless explicity asked to.
 - Only add comments when necessary.
-- Repect the users AGENTS.md file and ALWAYS follow the instructions in it.
-- Use the "subagent" tool to delegate research / exploration tasks
+- Use the "subagent" tool to delegate large tasks / exploration. Run multiple subagents in parallel with Promise.all
 - When you have fully completed the task, call the "taskComplete" function
 `
 })

@@ -12,7 +12,7 @@
   },
   "scripts": {
     "prepare": "husky && effect-language-service patch",
-    "check": "oxlint -c .oxlintrc.json --fix && pnpm tsgo --noEmit",
+    "check": "oxlint -c .oxlintrc.json --fix && pnpm tsc --noEmit",
     "test": "vitest run",
     "build": "tsc -b tsconfig.json",
     "prepublishOnly": "pnpm build"
