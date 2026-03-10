@@ -27,9 +27,12 @@ export class ToolkitRenderer extends ServiceMap.Service<
         for (const [name, tool] of Object.entries(tools.tools)) {
           const paramName =
             SchemaAST.resolveIdentifier(tool.parametersSchema.ast) ?? "options"
+          const paramType = TypeBuilder.render(tool.parametersSchema)
+          const params =
+            paramType === "void" ? "" : `${paramName}: ${paramType}`
           output.push(
             `/** ${tool.description} */
-declare function ${name}(${paramName}: ${TypeBuilder.render(tool.parametersSchema)}): Promise<${TypeBuilder.render(tool.successSchema)}>`,
+declare function ${name}(${params}): Promise<${TypeBuilder.render(tool.successSchema)}>`,
           )
         }
         return output.join("\n\n")
