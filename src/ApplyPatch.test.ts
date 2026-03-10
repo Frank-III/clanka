@@ -102,6 +102,96 @@ describe("patchContent", () => {
     ])
   })
 
+  it("parses multi-file git diffs with add, rename, and delete", () => {
+    expect(
+      parsePatch(
+        [
+          "diff --git a/src/app.ts b/src/app.ts",
+          "--- a/src/app.ts",
+          "+++ b/src/app.ts",
+          "@@ -1 +1 @@",
+          "-old",
+          "+new",
+          "diff --git a/obsolete.txt b/obsolete.txt",
+          "deleted file mode 100644",
+          "--- a/obsolete.txt",
+          "+++ /dev/null",
+          "diff --git a/src/old.ts b/src/new.ts",
+          "similarity index 100%",
+          "rename from src/old.ts",
+          "rename to src/new.ts",
+          "--- a/src/old.ts",
+          "+++ b/src/new.ts",
+          "@@ -1 +1 @@",
+          "-before",
+          "+after",
+          "diff --git a/dev/null b/notes/hello.txt",
+          "new file mode 100644",
+          "--- /dev/null",
+          "+++ b/notes/hello.txt",
+          "@@ -0,0 +1 @@",
+          "+Hello world",
+        ].join("\n"),
+      ),
+    ).toEqual([
+      {
+        type: "update",
+        path: "src/app.ts",
+        chunks: [
+          {
+            old: ["old"],
+            next: ["new"],
+          },
+        ],
+      },
+      {
+        type: "delete",
+        path: "obsolete.txt",
+      },
+      {
+        type: "update",
+        path: "src/old.ts",
+        movePath: "src/new.ts",
+        chunks: [
+          {
+            old: ["before"],
+            next: ["after"],
+          },
+        ],
+      },
+      {
+        type: "add",
+        path: "notes/hello.txt",
+        content: "Hello world\n",
+      },
+    ])
+  })
+
+  it("parses unified diffs without a diff --git header", () => {
+    expect(
+      parsePatch(
+        [
+          "--- a/sample.txt",
+          "+++ b/sample.txt",
+          "@@ -1 +1,2 @@",
+          " alpha",
+          "+beta",
+        ].join("\n"),
+      ),
+    ).toEqual([
+      {
+        type: "update",
+        path: "sample.txt",
+        chunks: [
+          {
+            old: ["alpha"],
+            next: ["alpha", "beta"],
+          },
+        ],
+      },
+    ])
+  })
+
   it("parses heredoc-wrapped hunks", () => {
     expect(
       patchContent("sample.txt", "old\n", "<<'EOF'\n@@\n-old\n+new\nEOF"),

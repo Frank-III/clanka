@@ -26,7 +26,7 @@ const Gpt54 = Codex.model("gpt-5.4", {
   },
 }).pipe(Layer.provide(ModelServices))
 
-const Opus = Copilot.model("claude-opus-4.6", {
+const _Opus = Copilot.model("claude-opus-4.6", {
   thinking: { thinking_budget: 4000 },
 }).pipe(Layer.provideMerge(ModelServices))
 

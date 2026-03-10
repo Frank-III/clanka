@@ -66,6 +66,23 @@ const locate = (text: string) => {
   }
 }
 
+const parseChunkHeader = (line: string): string | undefined => {
+  if (line === "@@") {
+    return
+  }
+
+  const unified = line.match(
+    /^@@\s+-\d+(?:,\d+)?\s+\+\d+(?:,\d+)?\s+@@(?:\s?(.*))?$/,
+  )
+  if (unified) {
+    const ctx = unified[1]?.trim()
+    return ctx === undefined || ctx.length === 0 ? undefined : ctx
+  }
+
+  const ctx = line.slice(2).trim()
+  return ctx.length === 0 ? undefined : ctx
+}
+
 const parseChunks = (
   lines: ReadonlyArray<string>,
   start: number,
@@ -76,7 +93,7 @@ const parseChunks = (
 
   while (i < end) {
     const line = lines[i]!
-    if (line.startsWith("***")) {
+    if (line.startsWith("***") || line.startsWith("diff --git ")) {
       break
     }
     if (!line.startsWith("@@")) {
@@ -84,7 +101,7 @@ const parseChunks = (
       continue
     }
 
-    const ctx = line.slice(2).trim()
+    const ctx = parseChunkHeader(line)
     const old = Array<string>()
     const next = Array<string>()
     let eof = false
@@ -97,7 +114,11 @@ const parseChunks = (
         i++
         break
       }
-      if (line.startsWith("@@") || line.startsWith("***")) {
+      if (
+        line.startsWith("@@") ||
+        line.startsWith("***") ||
+        line.startsWith("diff --git ")
+      ) {
         break
       }
       if (line.startsWith(" ")) {
@@ -108,6 +129,7 @@ const parseChunks = (
         old.push(line.slice(1))
       } else if (line.startsWith("+")) {
         next.push(line.slice(1))
+      } else if (line === "\\ No newline at end of file") {
       }
       i++
     }
@@ -115,7 +137,7 @@ const parseChunks = (
     chunks.push({
       old,
       next,
-      ...(ctx.length > 0 ? { ctx } : {}),
+      ...(ctx === undefined ? {} : { ctx }),
       ...(eof ? { eof: true } : {}),
     })
   }
@@ -189,86 +211,138 @@ const parseAdd = (lines: ReadonlyArray<string>, start: number, end: number) => {
   }
 }
 
-export const parsePatch = (input: string): ReadonlyArray<FilePatch> => {
-  const text = normalize(input)
-  if (text.length === 0) {
-    throw new Error("patchText is required")
+const normalizeDiffPath = (path: string): string => {
+  if (path === "/dev/null") {
+    return path
   }
-  if (text === `${BEGIN}\n${END}`) {
-    throw new Error("patch rejected: empty patch")
+  if (path.startsWith("a/") || path.startsWith("b/")) {
+    return path.slice(2)
   }
+  return path
+}
 
-  const { lines, begin, end } = locate(text)
+const parseHeaderPath = (line: string, prefix: "--- " | "+++ "): string => {
+  const body = line.slice(prefix.length)
+  const tabIndex = body.indexOf("\t")
+  const value = tabIndex === -1 ? body : body.slice(0, tabIndex)
+  return normalizeDiffPath(value.trim())
+}
+
+const parseDiffGitPaths = (
+  line: string,
+): readonly [string, string] | undefined => {
+  const match = line.match(/^diff --git a\/(.+) b\/(.+)$/)
+  if (!match) {
+    return
+  }
+  return [match[1]!, match[2]!]
+}
+
+const hasDiffHeaders = (lines: ReadonlyArray<string>): boolean =>
+  lines.some(
+    (line) =>
+      line.startsWith("diff --git ") ||
+      line.startsWith("--- ") ||
+      line.startsWith("rename from ") ||
+      line.startsWith("rename to "),
+  )
+
+const parseGitPatch = (text: string): ReadonlyArray<FilePatch> => {
+  const lines = text.split("\n")
   const out = Array<FilePatch>()
-  let i = begin + 1
+  let i = 0
 
-  while (i < end) {
-    while (i < end && lines[i]!.trim() === "") {
+  while (i < lines.length) {
+    while (i < lines.length && lines[i]!.trim() === "") {
       i++
     }
-    if (i === end) {
+    if (i >= lines.length) {
       break
     }
 
-    const line = lines[i]!
-    if (line.startsWith(ADD)) {
-      const path = line.slice(ADD.length).trim()
-      if (path.length === 0) {
-        fail("missing add file path")
+    let oldPath: string | undefined
+    let newPath: string | undefined
+    let renameFrom: string | undefined
+    let renameTo: string | undefined
+
+    if (lines[i]!.startsWith("diff --git ")) {
+      const parsedPaths = parseDiffGitPaths(lines[i]!)
+      if (!parsedPaths) {
+        return fail(`invalid git diff header: ${lines[i]}`)
       }
-      const parsed = parseAdd(lines, i + 1, end)
+      const [parsedOldPath, parsedNewPath] = parsedPaths
+      oldPath = parsedOldPath
+      newPath = parsedNewPath
+      i++
+    }
+
+    while (i < lines.length) {
+      const line = lines[i]!
+      if (line.startsWith("diff --git ")) {
+        break
+      }
+      if (line.startsWith("rename from ")) {
+        renameFrom = line.slice("rename from ".length).trim()
+        i++
+        continue
+      }
+      if (line.startsWith("rename to ")) {
+        renameTo = line.slice("rename to ".length).trim()
+        i++
+        continue
+      }
+      if (line.startsWith("--- ")) {
+        oldPath = parseHeaderPath(line, "--- ")
+        i++
+        if (i >= lines.length || !lines[i]!.startsWith("+++ ")) {
+          fail("missing new file header")
+        }
+        newPath = parseHeaderPath(lines[i]!, "+++ ")
+        i++
+        break
+      }
+      if (line.startsWith("@@")) {
+        break
+      }
+      i++
+    }
+
+    const parsed = parseChunks(lines, i)
+    i = parsed.next
+
+    const fromPath = normalizeDiffPath(renameFrom ?? oldPath ?? "/dev/null")
+    const toPath = normalizeDiffPath(renameTo ?? newPath ?? fromPath)
+
+    if (fromPath === "/dev/null") {
+      if (toPath === "/dev/null") {
+        fail("invalid diff: both file paths are /dev/null")
+      }
       out.push({
         type: "add",
-        path,
-        content: parsed.content,
+        path: toPath,
+        content: patchChunks(toPath, "", parsed.chunks),
       })
-      i = parsed.next
       continue
     }
-    if (line.startsWith(DELETE)) {
-      const path = line.slice(DELETE.length).trim()
-      if (path.length === 0) {
-        fail("missing delete file path")
-      }
+
+    if (toPath === "/dev/null") {
       out.push({
         type: "delete",
-        path,
+        path: fromPath,
       })
-      i++
-      continue
-    }
-    if (line.startsWith(UPDATE)) {
-      const path = line.slice(UPDATE.length).trim()
-      if (path.length === 0) {
-        fail("missing update file path")
-      }
-
-      i++
-      let movePath: string | undefined
-      if (i < end && lines[i]!.startsWith(MOVE)) {
-        movePath = lines[i]!.slice(MOVE.length).trim()
-        if (movePath.length === 0) {
-          fail("missing move file path")
-        }
-        i++
-      }
-
-      const parsed = parseChunks(lines, i, end)
-      if (parsed.chunks.length === 0) {
-        fail("no hunks found")
-      }
-
-      out.push({
-        type: "update",
-        path,
-        chunks: parsed.chunks,
-        ...(movePath === undefined ? {} : { movePath }),
-      })
-      i = parsed.next
       continue
     }
 
-    fail(`unexpected line in wrapped patch: ${line}`)
+    if (parsed.chunks.length === 0 && fromPath === toPath) {
+      fail(`no hunks found for ${fromPath}`)
+    }
+
+    out.push({
+      type: "update",
+      path: fromPath,
+      chunks: parsed.chunks,
+      ...(toPath === fromPath ? {} : { movePath: toPath }),
+    })
   }
 
   if (out.length === 0) {
@@ -278,12 +352,118 @@ export const parsePatch = (input: string): ReadonlyArray<FilePatch> => {
   return out
 }
 
+export const parsePatch = (input: string): ReadonlyArray<FilePatch> => {
+  const text = normalize(input)
+  if (text.length === 0) {
+    throw new Error("patchText is required")
+  }
+  if (text === `${BEGIN}\n${END}`) {
+    throw new Error("patch rejected: empty patch")
+  }
+
+  if (text.startsWith(BEGIN)) {
+    const { lines, begin, end } = locate(text)
+    const out = Array<FilePatch>()
+    let i = begin + 1
+
+    while (i < end) {
+      while (i < end && lines[i]!.trim() === "") {
+        i++
+      }
+      if (i === end) {
+        break
+      }
+
+      const line = lines[i]!
+      if (line.startsWith(ADD)) {
+        const path = line.slice(ADD.length).trim()
+        if (path.length === 0) {
+          fail("missing add file path")
+        }
+        const parsed = parseAdd(lines, i + 1, end)
+        out.push({
+          type: "add",
+          path,
+          content: parsed.content,
+        })
+        i = parsed.next
+        continue
+      }
+      if (line.startsWith(DELETE)) {
+        const path = line.slice(DELETE.length).trim()
+        if (path.length === 0) {
+          fail("missing delete file path")
+        }
+        out.push({
+          type: "delete",
+          path,
+        })
+        i++
+        continue
+      }
+      if (line.startsWith(UPDATE)) {
+        const path = line.slice(UPDATE.length).trim()
+        if (path.length === 0) {
+          fail("missing update file path")
+        }
+
+        i++
+        let movePath: string | undefined
+        if (i < end && lines[i]!.startsWith(MOVE)) {
+          movePath = lines[i]!.slice(MOVE.length).trim()
+          if (movePath.length === 0) {
+            fail("missing move file path")
+          }
+          i++
+        }
+
+        const parsed = parseChunks(lines, i, end)
+        if (parsed.chunks.length === 0) {
+          fail("no hunks found")
+        }
+
+        out.push({
+          type: "update",
+          path,
+          chunks: parsed.chunks,
+          ...(movePath === undefined ? {} : { movePath }),
+        })
+        i = parsed.next
+        continue
+      }
+
+      fail(`unexpected line in wrapped patch: ${line}`)
+    }
+
+    if (out.length === 0) {
+      fail("no hunks found")
+    }
+
+    return out
+  }
+
+  const lines = text.split("\n")
+  if (hasDiffHeaders(lines)) {
+    return parseGitPatch(text)
+  }
+
+  return fail("Invalid patch format: expected git/unified diff")
+}
+
 export const wrappedPath = (input: string): string | undefined => {
   const text = normalize(input)
-  if (!text.startsWith(BEGIN)) {
+  if (text.startsWith(BEGIN)) {
+    return parseWrapped(text).path
+  }
+  const lines = text.split("\n")
+  if (!hasDiffHeaders(lines)) {
     return
   }
-  return parseWrapped(text).path
+  const patch = parseGitPatch(text)
+  if (patch.length !== 1 || patch[0]!.type !== "update") {
+    return
+  }
+  return patch[0]!.path
 }
 
 const parse = (input: string): ReadonlyArray<Chunk> => {
