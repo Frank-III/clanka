@@ -4,7 +4,6 @@
 import {
   Array,
   Data,
-  Deferred,
   Effect,
   FileSystem,
   Layer,
@@ -34,10 +33,10 @@ export class CurrentDirectory extends ServiceMap.Service<
  * @since 1.0.0
  * @category Context
  */
-export class TaskCompleteDeferred extends ServiceMap.Service<
-  TaskCompleteDeferred,
-  Deferred.Deferred<string>
->()("clanka/AgentTools/TaskCompleteDeferred") {}
+export class TaskCompleter extends ServiceMap.Service<
+  TaskCompleter,
+  (output: string) => Effect.Effect<void>
+>()("clanka/AgentTools/TaskCompleter") {}
 
 /**
  * @since 1.0.0
@@ -59,7 +58,7 @@ export const makeContextNoop = (cwd?: string) =>
     spawn: () => Effect.die("Not implemented"),
   }).pipe(
     ServiceMap.add(CurrentDirectory, cwd ?? "/"),
-    ServiceMap.add(TaskCompleteDeferred, Deferred.makeUnsafe()),
+    ServiceMap.add(TaskCompleter, () => Effect.void),
   )
 
 /**
@@ -202,7 +201,7 @@ export const AgentTools = Toolkit.make(
     parameters: Schema.String.annotate({
       identifier: "output",
     }),
-    dependencies: [TaskCompleteDeferred],
+    dependencies: [TaskCompleter],
   }),
 )
 
@@ -529,8 +528,8 @@ export const AgentToolHandlersNoDeps = AgentTools.toLayer(
         return yield* context.spawn({ prompt })
       }, Effect.orDie),
       taskComplete: Effect.fn("AgentTools.taskComplete")(function* (message) {
-        const deferred = yield* TaskCompleteDeferred
-        yield* Deferred.succeed(deferred, message)
+        const deferred = yield* TaskCompleter
+        yield* deferred(message)
       }),
     })
   }),

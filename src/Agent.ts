@@ -24,25 +24,33 @@ import {
   Tool,
   Toolkit,
 } from "effect/unstable/ai"
-import {
-  AgentToolHandlers,
-  AgentTools,
-  CurrentDirectory,
-  SubagentContext,
-  TaskCompleteDeferred,
-} from "./AgentTools.ts"
-import { Executor } from "./Executor.ts"
+import { AgentToolHandlers, AgentTools, SubagentContext } from "./AgentTools.ts"
 import { ToolkitRenderer } from "./ToolkitRenderer.ts"
 import { ModelName, ProviderName } from "effect/unstable/ai/Model"
 import { type StreamPart } from "effect/unstable/ai/Response"
 import type { ChildProcessSpawner } from "effect/unstable/process"
 import type { HttpClient } from "effect/unstable/http"
+import { AgentExecutor, AgentFinished } from "./AgentExecutor.ts"
+
+/**
+ * @since 1.0.0
+ * @category Models
+ */
+export type TypeId = "~clanka/Agent"
+
+/**
+ * @since 1.0.0
+ * @category Models
+ */
+export const TypeId: TypeId = "~clanka/Agent"
 
 /**
  * @since 1.0.0
  * @category Models
  */
 export interface Agent {
+  readonly [TypeId]: TypeId
+
   readonly output: Stream.Stream<Output, AgentFinished | AiError.AiError>
 
   /**
@@ -57,19 +65,16 @@ export interface Agent {
 }
 
 /**
- * Start an agent in the given directory with the given prompt and tools.
- *
+ * @since 1.0.0
+ * @category Service
+ */
+export const Agent = ServiceMap.Service<Agent>("clanka/Agent")
+
+/**
  * @since 1.0.0
  * @category Constructors
  */
-export const make: <
-  // oxlint-disable-next-line typescript/no-explicit-any
-  Toolkit extends Toolkit.Any = never,
-  SE = never,
-  SR = never,
->(options: {
-  /** The working directory to run the agent in */
-  readonly directory: string
+export const make: (options: {
   /** The prompt to use for the agent */
   readonly prompt: Prompt.RawInput
   /**
@@ -83,63 +88,27 @@ export const make: <
         readonly agentsMd: string
       }) => string)
     | undefined
-  /** Additional tools to provide to the agent */
-  readonly tools?: Toolkit | undefined
-  /** Layer to use for subagents */
-  readonly subagentModel?:
-    | Layer.Layer<
-        LanguageModel.LanguageModel | ProviderName | ModelName,
-        SE,
-        SR
-      >
-    | undefined
 }) => Effect.Effect<
   Agent,
   never,
   | Scope.Scope
-  | FileSystem.FileSystem
-  | Path.Path
-  | Executor
+  | AgentExecutor
   | LanguageModel.LanguageModel
   | ProviderName
   | ModelName
-  | ToolkitRenderer
-  | (Toolkit extends Toolkit.Toolkit<infer T>
-      ? Tool.HandlersFor<T> | Tool.HandlerServices<T[keyof T]>
-      : never)
-  | Tool.HandlersFor<typeof AgentTools.tools>
-  | SR
-> = Effect.fnUntraced(function* (options: {
-  readonly directory: string
-  readonly prompt: Prompt.RawInput
-  readonly system?:
-    | string
-    | ((options: { readonly toolInstructions: string }) => string)
-    | undefined
-  readonly tools?: Toolkit.Toolkit<{}> | undefined
-  readonly subagentModel?:
-    | Layer.Layer<LanguageModel.LanguageModel | ProviderName | ModelName>
-    | undefined
-}) {
-  const fs = yield* FileSystem.FileSystem
-  const pathService = yield* Path.Path
-  const executor = yield* Executor
-  const renderer = yield* ToolkitRenderer
+> = Effect.fnUntraced(function* (options) {
+  const executor = yield* AgentExecutor
   const generateSystem =
     typeof options.system === "function" ? options.system : defaultSystem
 
-  const allTools = Toolkit.merge(AgentTools, options.tools ?? Toolkit.empty)
-  const allToolsDts = renderer.render(allTools)
-  const tools = yield* allTools
   const singleTool = yield* SingleTools.asEffect().pipe(
     Effect.provide(SingleToolHandlers),
   )
   const services = yield* Effect.services<
-    | Tool.HandlerServices<{}>
-    | LanguageModel.LanguageModel
-    | ProviderName
-    | ModelName
+    LanguageModel.LanguageModel | ProviderName | ModelName
   >()
+  const subagentModel = yield* Effect.serviceOption(SubagentModel)
+  const toolsDts = yield* executor.toolsDts
 
   const pendingMessages = new Set<{
     readonly message: string
@@ -147,9 +116,10 @@ export const make: <
   }>()
 
   const agentsMd = yield* pipe(
-    fs.readFileString(pathService.resolve(options.directory, "AGENTS.md")),
+    executor.agentsMd,
     Effect.map(
-      (content) => `# AGENTS.md
+      Option.map(
+        (content) => `# AGENTS.md
 
 The following instructions are from ./AGENTS.md in the current directory.
 You do not need to read this file again.
@@ -159,8 +129,8 @@ You do not need to read this file again.
 <!-- AGENTS.md start -->
 ${content}
 <!-- AGENTS.md end -->`,
+      ),
     ),
-    Effect.option,
   )
 
   let agentCounter = 0
@@ -182,7 +152,7 @@ ${content}
     const deferred = yield* Deferred.make<string>()
     const output = yield* Queue.make<Output, AgentFinished | AiError.AiError>()
 
-    const toolInstructions = generateSystemTools(allToolsDts, !singleToolMode)
+    const toolInstructions = generateSystemTools(toolsDts, !singleToolMode)
     let system = generateSystem({
       toolInstructions,
       agentsMd: Option.getOrElse(agentsMd, () => ""),
@@ -273,20 +243,17 @@ ${prompt}`),
             Effect.orDie,
           )
         }).pipe(
-          options.subagentModel
-            ? Effect.provide(Layer.orDie(options.subagentModel))
+          Option.isSome(subagentModel)
+            ? Effect.provideServices(subagentModel.value)
             : Effect.provideServices(services),
         )
       },
-    }).pipe(
-      ServiceMap.add(CurrentDirectory, options.directory),
-      ServiceMap.add(TaskCompleteDeferred, deferred),
-    )
+    })
 
     const executeScript = Effect.fnUntraced(function* (script: string) {
       maybeSend({ agentId, part: new ScriptEnd(), release: true })
       const output = yield* pipe(
-        executor.execute({ tools, script }),
+        executor.execute(script),
         Stream.mkString,
         Effect.provideServices(taskServices),
       )
@@ -488,7 +455,8 @@ ${prompt}`),
     }),
   )
 
-  return identity<Agent>({
+  return Agent.of({
+    [TypeId]: TypeId,
     output,
     steer: (message) =>
       Effect.callback((resume) => {
@@ -497,8 +465,7 @@ ${prompt}`),
         return Effect.sync(() => pendingMessages.delete(entry))
       }),
   })
-  // oxlint-disable-next-line typescript/no-explicit-any
-}) as any
+})
 
 const defaultSystem = (options: {
   readonly toolInstructions: string
@@ -608,6 +575,28 @@ const SingleToolHandlers = SingleTools.toLayer({
 
 /**
  * @since 1.0.0
+ * @category Subagent model
+ */
+export class SubagentModel extends ServiceMap.Service<
+  SubagentModel,
+  ServiceMap.ServiceMap<LanguageModel.LanguageModel | ProviderName | ModelName>
+>()("clanka/Agent/SubagentModel") {}
+
+/**
+ * @since 1.0.0
+ * @category Subagent model
+ */
+export const layerSubagentModel = <E, R>(
+  layer: Layer.Layer<
+    LanguageModel.LanguageModel | ProviderName | ModelName,
+    E,
+    R
+  >,
+): Layer.Layer<SubagentModel, E, R> =>
+  Layer.effect(SubagentModel, Layer.build(layer))
+
+/**
+ * @since 1.0.0
  * @category System prompts
  */
 export class AgentModelConfig extends ServiceMap.Reference<{
@@ -637,7 +626,11 @@ export const layerServices: Layer.Layer<
   | Path.Path
   | ChildProcessSpawner.ChildProcessSpawner
   | HttpClient.HttpClient
-> = Layer.mergeAll(AgentToolHandlers, Executor.layer, ToolkitRenderer.layer)
+> = Layer.mergeAll(
+  AgentToolHandlers,
+  Executor.layerLocal,
+  ToolkitRenderer.layer,
+)
 
 /**
  * @since 1.0.0
@@ -705,17 +698,6 @@ export class ScriptOutput extends Schema.TaggedClass<ScriptOutput>()(
   "ScriptOutput",
   {
     output: Schema.String,
-  },
-) {}
-
-/**
- * @since 1.0.0
- * @category Output
- */
-export class AgentFinished extends Schema.TaggedErrorClass<AgentFinished>()(
-  "AgentFinished",
-  {
-    summary: Schema.String,
   },
 ) {}
 

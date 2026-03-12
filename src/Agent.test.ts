@@ -150,7 +150,7 @@ describe("Agent", () => {
           AgentModelConfig.layer({
             supportsNoTools: true,
           }),
-          Executor.layer,
+          Executor.layerLocal,
           ToolkitRenderer.layer,
         ).pipe(Layer.provideMerge(NodeServices.layer)),
       ),
