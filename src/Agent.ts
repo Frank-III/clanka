@@ -64,7 +64,7 @@ export interface Agent {
  */
 export const make: <
   // oxlint-disable-next-line typescript/no-explicit-any
-  Toolkit extends Toolkit.Toolkit<any> = never,
+  Toolkit extends Toolkit.Any = never,
   SE = never,
   SR = never,
 >(options: {
