@@ -591,6 +591,7 @@ const systemToolsCommon = (
 - Top level await is supported.
 - AVOID passing scripts into the "bash" function, and instead write javascript.
 - PREFER the "search" function over "rg" for finding information or code
+- Variables **are not shared** between executions, so you must include all necessary code in each script you execute.
 
 **When you have fully completed your task**, call the "taskComplete" function with the final output.
 Make sure every detail of the task is done before calling "taskComplete".
