@@ -20,6 +20,7 @@ import { pipe } from "effect/Function"
 import * as Array from "effect/Array"
 import * as Data from "effect/Data"
 import * as Layer from "effect/Layer"
+import * as Duration from "effect/Duration"
 
 /**
  * @since 1.0.0
@@ -160,7 +161,7 @@ export const AgentTools = Toolkit.make(
     parameters: Schema.Struct({
       command: Schema.String,
       timeout: Schema.optional(Schema.Finite).annotate({
-        documentation: "Timeout in seconds (default: 120)",
+        documentation: "Timeout in ms (default: 120000)",
       }),
     }).annotate({
       identifier: "command",
@@ -355,7 +356,7 @@ export const AgentToolHandlersNoDeps = AgentTools.toLayer(
         return yield* Effect.promise(() => Glob.glob(pattern, { cwd }))
       }),
       bash: Effect.fn("AgentTools.bash")(function* (options) {
-        const timeout = options.timeout ?? 120
+        const timeout = Duration.millis(options.timeout ?? 120_000)
         yield* Effect.logInfo(`Calling "bash"`).pipe(
           Effect.annotateLogs({ ...options, timeout }),
         )
@@ -366,11 +367,9 @@ export const AgentToolHandlersNoDeps = AgentTools.toLayer(
         })
         return yield* execute(cmd).pipe(
           Effect.timeoutOrElse({
-            duration: timeout * 1_000,
+            duration: timeout,
             onTimeout: () =>
-              Effect.die(
-                new Error(`Command timed out after ${timeout} seconds`),
-              ),
+              Effect.die(new Error(`Command timed out after ${timeout}`)),
           }),
         )
       }, Effect.orDie),
