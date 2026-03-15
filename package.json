@@ -11,9 +11,9 @@
     "./package.json": "./package.json"
   },
   "scripts": {
-    "prepare": "husky && effect-language-service patch",
-    "check": "oxlint -c .oxlintrc.json --fix && pnpm tsc -b tsconfig.json",
-    "test": "vitest run",
+    "prepare": "vp config && effect-language-service patch",
+    "check": "vp lint --fix && pnpm tsc -b tsconfig.json",
+    "test": "vp test run",
     "build": "tsc -b tsconfig.json",
     "prepublishOnly": "pnpm build"
   },
@@ -54,25 +54,17 @@
     "@types/turndown": "^5.0.6",
     "@typescript/native-preview": "7.0.0-dev.20260219.1",
     "effect": "4.0.0-beta.31",
-    "husky": "^9.1.7",
-    "lint-staged": "^16.2.7",
-    "oxlint": "^1.49.0",
-    "prettier": "^3.8.1",
     "typescript": "^5.9.3",
-    "vitest": "^4.0.18"
-  },
-  "lint-staged": {
-    "*.{ts,tsx}": [
-      "oxlint --fix",
-      "prettier --write"
-    ],
-    "*.{json,md,yml,yaml}": [
-      "prettier --write"
-    ]
+    "vitest": "npm:@voidzero-dev/vite-plus-test@latest",
+    "vite-plus": "latest"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
       "@vscode/ripgrep"
-    ]
+    ],
+    "overrides": {
+      "vite": "npm:@voidzero-dev/vite-plus-core@latest",
+      "vitest": "npm:@voidzero-dev/vite-plus-test@latest"
+    }
   }
 }
