@@ -1,0 +1,26 @@
+vite.config.ts
+  619464d6cc1803f5 4-6
+package.json
+  619464d6cc1803f5 15
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.12",
+  "base_commit_sha": "10c73f2d6fff270d8bcb180ee16ced84323fdafc",
+  "prompts": {
+    "619464d6cc1803f5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "87ed1509-dd4e-4442-bfdb-3e64216d392f",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Frank Wang <1454884738@qq.com>",
+      "messages": [],
+      "total_additions": 4,
+      "total_deletions": 1,
+      "accepted_lines": 4,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/eed1e85ca43a1227e3051dfa524838efadd901ebe69f97080b11998190e491e5"
+    }
+  }
+}
