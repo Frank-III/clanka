@@ -20,7 +20,6 @@ import { pipe } from "effect/Function"
 import * as Array from "effect/Array"
 import * as Data from "effect/Data"
 import * as Layer from "effect/Layer"
-import * as Duration from "effect/Duration"
 
 /**
  * @since 1.0.0
@@ -75,13 +74,50 @@ export const AgentTools = Toolkit.make(
     success: Schema.NullOr(Schema.String),
     dependencies: [CurrentDirectory],
   }),
-  Tool.make("search", {
-    description: "Find information from a description",
+  Tool.make("rg", {
+    description: "Search for a pattern in files using ripgrep",
+    parameters: Schema.Struct({
+      pattern: Schema.String,
+      glob: Schema.optional(Schema.String).annotate({
+        documentation: "--glob",
+      }),
+      maxLines: Schema.optional(Schema.Finite).annotate({
+        documentation:
+          "The total maximum number of lines to return across all files (default: 500)",
+      }),
+    }),
+    success: Schema.String,
+    dependencies: [CurrentDirectory],
+  }),
+  Tool.make("delegate", {
+    description:
+      "Delegate a task to another software engineer / sub-agent. Returns the result of the task.",
     parameters: Schema.String.annotate({
-      identifier: "description",
+      identifier: "task",
     }),
     success: Schema.String,
     dependencies: [SubagentExecutor],
+  }),
+  Tool.make("glob", {
+    description: "Find files matching a glob pattern.",
+    parameters: Schema.String.annotate({
+      identifier: "pattern",
+    }),
+    success: Schema.Array(Schema.String),
+    dependencies: [CurrentDirectory],
+  }),
+  Tool.make("bash", {
+    description: "Run a bash command and return the output",
+    parameters: Schema.Struct({
+      command: Schema.String,
+      timeoutMs: Schema.optional(Schema.Finite).annotate({
+        documentation: "Timeout in ms (default: 120000)",
+      }),
+    }).annotate({
+      identifier: "command",
+    }),
+    success: Schema.String,
+    dependencies: [CurrentDirectory],
   }),
   Tool.make("writeFile", {
     description:
@@ -132,43 +168,6 @@ export const AgentTools = Toolkit.make(
     success: Schema.Array(Schema.String),
     dependencies: [CurrentDirectory],
   }),
-  Tool.make("rg", {
-    description:
-      "Search for a pattern in files using ripgrep. Prefer the search function unless finding something specific",
-    parameters: Schema.Struct({
-      pattern: Schema.String,
-      glob: Schema.optional(Schema.String).annotate({
-        documentation: "--glob",
-      }),
-      maxLines: Schema.optional(Schema.Finite).annotate({
-        documentation:
-          "The total maximum number of lines to return across all files (default: 500)",
-      }),
-    }),
-    success: Schema.String,
-    dependencies: [CurrentDirectory],
-  }),
-  Tool.make("glob", {
-    description: "Find files matching a glob pattern.",
-    parameters: Schema.String.annotate({
-      identifier: "pattern",
-    }),
-    success: Schema.Array(Schema.String),
-    dependencies: [CurrentDirectory],
-  }),
-  Tool.make("bash", {
-    description: "Run a bash command and return the output",
-    parameters: Schema.Struct({
-      command: Schema.String,
-      timeoutMs: Schema.optional(Schema.Finite).annotate({
-        documentation: "Timeout in ms (default: 120000)",
-      }),
-    }).annotate({
-      identifier: "command",
-    }),
-    success: Schema.String,
-    dependencies: [CurrentDirectory],
-  }),
   Tool.make("gh", {
     description: "Use the GitHub CLI to run a command and return the output",
     parameters: Schema.Array(Schema.String).annotate({
@@ -176,15 +175,6 @@ export const AgentTools = Toolkit.make(
     }),
     success: Schema.String,
     dependencies: [CurrentDirectory],
-  }),
-  Tool.make("delegate", {
-    description:
-      "Delegate a task to another software engineer. Returns the result of the task.",
-    parameters: Schema.String.annotate({
-      identifier: "task",
-    }),
-    success: Schema.String,
-    dependencies: [SubagentExecutor],
   }),
   Tool.make("webSearch", {
     description: "Search the web for recent information.",
@@ -356,11 +346,11 @@ export const AgentToolHandlersNoDeps = AgentTools.toLayer(
         return yield* Effect.promise(() => Glob.glob(pattern, { cwd }))
       }),
       bash: Effect.fn("AgentTools.bash")(function* (options) {
-        const timeout = Duration.millis(options.timeoutMs ?? 120_000)
+        const timeoutMs = options.timeoutMs ?? 120_000
         yield* Effect.logInfo(`Calling "bash"`).pipe(
           Effect.annotateLogs({
             ...options,
-            timeoutMs: Duration.format(timeout),
+            timeoutMs,
           }),
         )
         const cwd = yield* CurrentDirectory
@@ -370,13 +360,9 @@ export const AgentToolHandlersNoDeps = AgentTools.toLayer(
         })
         return yield* execute(cmd).pipe(
           Effect.timeoutOrElse({
-            duration: timeout,
+            duration: timeoutMs,
             onTimeout: () =>
-              Effect.die(
-                new Error(
-                  `Command timed out after ${Duration.format(timeout)}`,
-                ),
-              ),
+              Effect.die(new Error(`Command timed out after ${timeoutMs}ms`)),
           }),
         )
       }, Effect.orDie),
@@ -544,21 +530,9 @@ export const AgentToolHandlersNoDeps = AgentTools.toLayer(
       delegate: Effect.fn("AgentTools.delegate")(function* (prompt) {
         yield* Effect.logInfo(`Calling "delegate"`)
         const spawn = yield* SubagentExecutor
-        return yield* spawn(`You have been asked using the "delegate" function to complete the following task. Try to avoid using the "delegate" or "search" functions yourself unless strictly necessary:
+        return yield* spawn(`You have been asked using the "delegate" function to complete the following task. Try to avoid using the "delegate" function yourself unless strictly necessary:
 
 ${prompt}`)
-      }, Effect.orDie),
-      search: Effect.fn("AgentTools.search")(function* (description) {
-        yield* Effect.logInfo(`Calling "search"`)
-        const spawn = yield* SubagentExecutor
-        return yield* spawn(`You are to find the following information as fast as possible:
-
-${description}
-
-Requirements:
-- DO NOT call the "search" or "delegate" functions.
-- Output a concise report with file names, line numbers, and code snippets.
-- If nothing relevant is found, say so clearly.`)
       }, Effect.orDie),
       taskComplete: Effect.fn("AgentTools.taskComplete")(function* (message) {
         const deferred = yield* TaskCompleter
