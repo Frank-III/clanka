@@ -501,8 +501,6 @@ console.log(JSON.parse(content))
 And then you will revieve back the console output:
 
 \`\`\`
-Console output from executing javascript code:
-
 [22:44:53.054] INFO (#47): Calling "readFile" { path: 'package.json' }
 {
   "name": "my-project",

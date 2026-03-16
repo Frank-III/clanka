@@ -1,7 +1,7 @@
 {
   "name": "clanka",
   "type": "module",
-  "version": "0.1.12",
+  "version": "0.1.13",
   "publishConfig": {
     "access": "public"
   },
@@ -31,29 +31,29 @@
   "packageManager": "pnpm@10.28.0+sha512.05df71d1421f21399e053fde567cea34d446fa02c76571441bfc1c7956e98e363088982d940465fd34480d4d90a0668bc12362f8aa88000a64e83d0b0e47be48",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.27.1",
-    "@vscode/ripgrep": "^1.17.0",
+    "@vscode/ripgrep": "^1.17.1",
     "chalk": "^5.6.2",
     "glob": "^13.0.6",
     "turndown": "^7.2.2"
   },
   "peerDependencies": {
-    "@effect/ai-openai": "4.0.0-beta.31",
-    "@effect/ai-openai-compat": "4.0.0-beta.31",
-    "effect": "4.0.0-beta.31"
+    "@effect/ai-openai": "4.0.0-beta.32",
+    "@effect/ai-openai-compat": "4.0.0-beta.32",
+    "effect": "4.0.0-beta.32"
   },
   "devDependencies": {
-    "@changesets/changelog-github": "^0.5.2",
+    "@changesets/changelog-github": "^0.6.0",
     "@changesets/cli": "^2.29.8",
-    "@effect/ai-openai": "4.0.0-beta.31",
-    "@effect/ai-openai-compat": "4.0.0-beta.31",
-    "@effect/language-service": "^0.75.1",
-    "@effect/platform-node": "4.0.0-beta.31",
-    "@effect/vitest": "4.0.0-beta.31",
-    "@linear/sdk": "^75.0.0",
-    "@types/node": "^25.3.5",
+    "@effect/ai-openai": "4.0.0-beta.32",
+    "@effect/ai-openai-compat": "4.0.0-beta.32",
+    "@effect/language-service": "^0.80.0",
+    "@effect/platform-node": "4.0.0-beta.32",
+    "@effect/vitest": "4.0.0-beta.32",
+    "@linear/sdk": "^77.0.0",
+    "@types/node": "^25.5.0",
     "@types/turndown": "^5.0.6",
-    "@typescript/native-preview": "7.0.0-dev.20260219.1",
-    "effect": "4.0.0-beta.31",
+    "@typescript/native-preview": "7.0.0-dev.20260315.1",
+    "effect": "4.0.0-beta.32",
     "typescript": "^5.9.3",
     "vitest": "npm:@voidzero-dev/vite-plus-test@latest",
     "vite-plus": "latest"
@@ -61,10 +61,10 @@
   "pnpm": {
     "onlyBuiltDependencies": [
       "@vscode/ripgrep"
-    ],
-    "overrides": {
-      "vite": "npm:@voidzero-dev/vite-plus-core@latest",
-      "vitest": "npm:@voidzero-dev/vite-plus-test@latest"
-    }
+    ]
+  },
+  "overrides": {
+    "vite": "npm:@voidzero-dev/vite-plus-core@latest",
+    "vitest": "npm:@voidzero-dev/vite-plus-test@latest"
   }
 }
