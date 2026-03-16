@@ -75,7 +75,7 @@ ${output.summary}\n\n`
           return `${prefix}${chalkScriptHeading(`${scriptIcon} Script output`)}\n\n${chalk.dim(truncated)}\n\n`
         }
         case "ErrorRetry": {
-          return `${prefix}${chalk.red(`Error: ${output.error}. Retrying...`)}\n\n${chalk.dim(Cause.pretty(Cause.fail(output.error)))}\n\n`
+          return `${prefix}${chalk.red(`Error: ${output.error.reason._tag}. Retrying...`)}\n\n${chalk.dim(Cause.pretty(Cause.fail(output.error)))}\n\n`
         }
       }
     }),
