@@ -1,0 +1,22 @@
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.12",
+  "base_commit_sha": "69c41ddd74ba6164aa5c6e6941a7813620dd07d3",
+  "prompts": {
+    "619464d6cc1803f5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "87ed1509-dd4e-4442-bfdb-3e64216d392f",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Frank Wang <1454884738@qq.com>",
+      "messages": [],
+      "total_additions": 1,
+      "total_deletions": 1,
+      "accepted_lines": 1,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/2c9e705c5c4f82d9dfe4dae6026df02b733191e2f2449d77b0503ab9c7ba1bfc"
+    }
+  }
+}
