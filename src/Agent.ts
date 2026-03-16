@@ -472,6 +472,7 @@ const generateSystemTools = (
 - AVOID passing scripts into the "bash" function, and instead write javascript.
 - Do as much work as possible in a single script, using \`Promise.all\` to run multiple functions in parallel.
 - Variables **are not shared** between executions, so you must include all necessary code in each script you execute.
+- Use the "delegate" function to assign complex jobs to another software engineer.
 
 **When you have fully completed your task**, call the "taskComplete" function with the final output.
 DO NOT output the final result without wrapping it with "taskComplete".
@@ -486,7 +487,7 @@ ${toolsDts}
 declare const fetch: typeof globalThis.fetch
 \`\`\`
 
-For example, here is how you would read a file. First you would respond with
+For example, here is how you would read a file. First you would execute
 javascript code that uses the "readFile" function:
 
 \`\`\`
